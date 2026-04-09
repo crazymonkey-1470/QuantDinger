@@ -51,5 +51,5 @@ ENV PYTHON_API_PORT=5000
 # Use entrypoint script to check SECRET_KEY before starting
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
-# Start command
-CMD ["python", "run.py"]
+# Start command (gunicorn for production; override with CMD ["python", "run.py"] for dev)
+CMD ["gunicorn", "-c", "gunicorn_config.py", "run:app"]

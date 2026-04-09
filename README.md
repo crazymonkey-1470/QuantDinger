@@ -20,11 +20,11 @@
   </p>
 
   <p>
-    <strong>7 AI Agents · Python Strategies · 10+ Exchanges · Prediction Markets · Your Server, Your Keys</strong>
+    <strong>Tell AI your trading idea → Strategy generated → Backtest → Go live. All on your own server.</strong>
   </p>
   <p>
-    <i>Describe your trading idea in natural language → AI writes the Python strategy → Backtest → Live trade.<br/>
-    Zero coding required. Self-hosted — your API keys and strategies never leave your machine.</i>
+    <i>7 AI Agents · Python Strategies · 10+ Exchanges · Prediction Markets · Zero coding required.<br/>
+    Self-hosted — your API keys, data, and alpha never leave your machine.</i>
   </p>
 
   <p>

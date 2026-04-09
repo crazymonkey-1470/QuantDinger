@@ -38,7 +38,7 @@ def _normalize_lang(lang: str | None) -> str:
     """
     Normalize language code for AI output.
 
-    This should align with frontend i18n locales under `quantdinger_vue/src/locales/lang`.
+    This should align with frontend i18n locales in the private Vue app (`src/locales/lang`).
     Supported:
       - zh-CN, zh-TW, en-US, ko-KR, th-TH, vi-VN, ar-SA, de-DE, fr-FR, ja-JP
     Default: zh-CN
@@ -168,6 +168,10 @@ def run_backtest():
         enable_mtf = data.get('enableMtf', True)
         if isinstance(enable_mtf, str):
             enable_mtf = enable_mtf.lower() in ['true', '1', 'yes']
+        # persist toggle: skip DB write when False for faster iteration
+        persist = data.get('persist', True)
+        if isinstance(persist, str):
+            persist = persist.lower() in ['true', '1', 'yes']
         
         # (Debug) log received params if needed
         
@@ -265,27 +269,29 @@ def run_backtest():
                 'message': '使用标准K线回测'
             }
 
-        run_id = backtest_service.persist_run(
-            user_id=user_id,
-            indicator_id=int(indicator_id) if indicator_id is not None else None,
-            run_type='indicator',
-            market=market,
-            symbol=symbol,
-            timeframe=timeframe,
-            start_date_str=start_date_str,
-            end_date_str=end_date_str,
-            initial_capital=initial_capital,
-            commission=commission,
-            slippage=slippage,
-            leverage=leverage,
-            trade_direction=trade_direction,
-            strategy_config=strategy_config,
-            config_snapshot={'indicatorId': int(indicator_id) if indicator_id is not None else None},
-            status='success',
-            error_message='',
-            result=result,
-            code=indicator_code,
-        )
+        run_id = None
+        if persist:
+            run_id = backtest_service.persist_run(
+                user_id=user_id,
+                indicator_id=int(indicator_id) if indicator_id is not None else None,
+                run_type='indicator',
+                market=market,
+                symbol=symbol,
+                timeframe=timeframe,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str,
+                initial_capital=initial_capital,
+                commission=commission,
+                slippage=slippage,
+                leverage=leverage,
+                trade_direction=trade_direction,
+                strategy_config=strategy_config,
+                config_snapshot={'indicatorId': int(indicator_id) if indicator_id is not None else None},
+                status='success',
+                error_message='',
+                result=result,
+                code=indicator_code,
+            )
         
         return jsonify({
             'code': 1,

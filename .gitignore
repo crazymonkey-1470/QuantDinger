@@ -1,17 +1,14 @@
 # ============================================
 # QuantDinger - Open Source Repository
-# Frontend is closed-source, only dist/ is tracked.
 # ============================================
 
 # ========================
-# Frontend Source (CLOSED SOURCE - NOT tracked)
+# Frontend
 # ========================
+# Legacy / private frontend source (not part of this open-source tree)
 /quantdinger_vue/
 /QuantDinger-Vue-src/
-
-# ========================
-# Frontend dist - DO track (pre-built)
-# ========================
+# Build artefacts are committed for Docker-only deployments
 !/frontend/
 !/frontend/dist/
 !/frontend/dist/**
@@ -67,6 +64,8 @@ yarn.lock
 # ========================
 *.log
 backend_api_python/logs/
+# Vue build output belongs in frontend/dist/, not under the API package
+backend_api_python/dist/
 backend_api_python/data/quantdinger.db
 backend_api_python/data/memory/
 

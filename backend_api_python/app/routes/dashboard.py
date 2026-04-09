@@ -297,7 +297,7 @@ def _compute_strategy_stats(trades: List[Dict[str, Any]], strategies: List[Dict[
 @login_required
 def summary():
     """
-    Return dashboard summary used by `quantdinger_vue/src/views/dashboard/index.vue`.
+    Return dashboard summary used by the frontend dashboard view (private Vue repo).
     """
     try:
         user_id = g.user_id

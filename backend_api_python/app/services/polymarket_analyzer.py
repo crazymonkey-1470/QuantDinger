@@ -404,7 +404,7 @@ IMPORTANT: All text in the JSON response (reasoning, key_factors, risk_factors) 
             'DOGE': ['DOGE', 'Dogecoin', 'dogecoin', 'doge'],
             'AVAX': ['AVAX', 'Avalanche', 'avalanche', 'avax'],
             'DOT': ['DOT', 'Polkadot', 'polkadot', 'dot'],
-            'MATIC': ['MATIC', 'Polygon', 'polygon', 'matic']
+            'POL': ['POL', 'MATIC', 'Polygon', 'polygon', 'matic', 'pol']
         }
         
         question_upper = question.upper()

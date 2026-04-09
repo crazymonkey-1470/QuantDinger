@@ -2,7 +2,7 @@
 HTX (Huobi) direct REST client for spot and USDT-margined perpetual swap.
 
 References:
-- Spot base URL: https://api.huobi.pro
+- Spot base URL: https://api.htx.com  (legacy: api.huobi.pro)
 - USDT swap base URL: https://api.hbdm.com
 - Spot auth: query params with HmacSHA256 signature
 - Swap auth: query params with HmacSHA256 signature, request body in JSON
@@ -33,7 +33,7 @@ class HtxClient(BaseRestClient):
         *,
         api_key: str,
         secret_key: str,
-        base_url: str = "https://api.huobi.pro",
+        base_url: str = "https://api.htx.com",
         futures_base_url: str = "https://api.hbdm.com",
         timeout_sec: float = 15.0,
         market_type: str = "swap",
@@ -41,7 +41,7 @@ class HtxClient(BaseRestClient):
     ):
         chosen_base = futures_base_url if str(market_type or "").strip().lower() == "swap" else base_url
         super().__init__(base_url=chosen_base, timeout_sec=timeout_sec)
-        self.spot_base_url = (base_url or "https://api.huobi.pro").rstrip("/")
+        self.spot_base_url = (base_url or "https://api.htx.com").rstrip("/")
         self.futures_base_url = (futures_base_url or "https://api.hbdm.com").rstrip("/")
         self.api_key = (api_key or "").strip()
         self.secret_key = (secret_key or "").strip()
@@ -213,37 +213,38 @@ class HtxClient(BaseRestClient):
             return self._spot_private_request("GET", "/v1/account/accounts")
         return self.get_balance()
 
+    _BALANCE_ENDPOINTS = [
+        ("v1-cross", "POST", "/linear-swap-api/v1/swap_cross_account_info", {"margin_account": "USDT"}),
+        ("v5-cross", "POST", "/linear-swap-api/v5/swap_cross_account_info", {"margin_account": "USDT"}),
+        ("v3-unified", "GET", "/linear-swap-api/v3/unified_account_info", None),
+        ("v1-isolated", "POST", "/linear-swap-api/v1/swap_account_info", {}),
+    ]
+
     def get_balance(self) -> Any:
         if self.market_type == "spot":
             account_id = self._get_spot_account_id()
             return self._spot_private_request("GET", f"/v1/account/accounts/{account_id}/balance")
-        # 1) v1 cross
-        try:
-            raw = self._swap_private_request("POST", "/linear-swap-api/v1/swap_cross_account_info", json_body={"margin_account": "USDT"})
-            data = raw.get("data")
-            if data:
-                return raw
-        except LiveTradingError as e:
-            logger.debug("HTX v1 cross account_info failed: %s", e)
-        # 2) v3 unified (unified / multi-asset collateral accounts)
-        try:
-            raw = self._swap_private_request("GET", "/linear-swap-api/v3/unified_account_info")
-            v3_code = raw.get("code")
-            if v3_code is not None and int(v3_code) == 200:
+        last_err: Optional[Exception] = None
+        for tag, method, path, body in self._BALANCE_ENDPOINTS:
+            try:
+                if body is not None:
+                    raw = self._swap_private_request(method, path, json_body=body)
+                else:
+                    raw = self._swap_private_request(method, path)
+                if tag == "v3-unified":
+                    v3_code = raw.get("code")
+                    if v3_code is not None and int(v3_code) != 200:
+                        logger.debug("HTX %s returned code=%s", tag, v3_code)
+                        continue
                 data = raw.get("data")
-                if isinstance(data, list) and data:
-                    logger.info("HTX v3 unified_account_info succeeded")
+                if data:
+                    logger.info("HTX balance succeeded via %s", tag)
                     return raw
-            else:
-                logger.debug("HTX v3 unified_account_info returned code=%s", v3_code)
-        except (LiveTradingError, Exception) as e:
-            logger.debug("HTX v3 unified_account_info failed: %s", e)
-        # 3) v1 isolated
-        try:
-            return self._swap_private_request("POST", "/linear-swap-api/v1/swap_account_info", json_body={})
-        except LiveTradingError as e:
-            logger.warning("HTX all balance endpoints failed, last error: %s", e)
-            return {"data": []}
+            except (LiveTradingError, Exception) as e:
+                logger.debug("HTX %s balance failed: %s", tag, e)
+                last_err = e
+        logger.warning("HTX all balance endpoints failed, last error: %s", last_err)
+        return {"data": []}
 
     def get_positions(self, *, symbol: str = "") -> Any:
         if self.market_type == "spot":
@@ -272,34 +273,23 @@ class HtxClient(BaseRestClient):
             return {"data": rows}
 
         body = {"contract_code": to_htx_contract_code(symbol)} if symbol else {}
-        # 1) v1 cross
-        try:
-            raw = self._swap_private_request("POST", "/linear-swap-api/v1/swap_cross_position_info", json_body=body)
-            data = raw.get("data")
-            if data:
-                return raw
-        except LiveTradingError as e:
-            logger.debug("HTX v1 cross position_info failed: %s", e)
-        # 2) v1 isolated
-        try:
-            raw = self._swap_private_request("POST", "/linear-swap-api/v1/swap_position_info", json_body=body)
-            data = raw.get("data")
-            if data:
-                return raw
-        except LiveTradingError as e:
-            logger.debug("HTX v1 isolated position_info failed: %s", e)
-        # 3) v3 unified - extract positions from cross_swap sub-array
-        try:
-            raw = self._swap_private_request("GET", "/linear-swap-api/v3/unified_account_info")
-            v3_code = raw.get("code")
-            if v3_code is not None and int(v3_code) == 200:
-                v3_data = raw.get("data") or []
-                if isinstance(v3_data, list) and v3_data:
-                    logger.info("HTX v3 unified_account_info for positions succeeded")
+        position_endpoints = [
+            ("v1-cross", "POST", "/linear-swap-api/v1/swap_cross_position_info", body),
+            ("v5-cross", "POST", "/linear-swap-api/v5/swap_cross_position_info", body),
+            ("v1-isolated", "POST", "/linear-swap-api/v1/swap_position_info", body),
+        ]
+        last_err: Optional[Exception] = None
+        for tag, method, path, req_body in position_endpoints:
+            try:
+                raw = self._swap_private_request(method, path, json_body=req_body)
+                data = raw.get("data")
+                if data:
+                    logger.info("HTX positions succeeded via %s", tag)
                     return raw
-        except (LiveTradingError, Exception) as e:
-            logger.debug("HTX v3 unified_account_info (positions) failed: %s", e)
-        logger.warning("HTX all position endpoints failed for symbol=%s", symbol)
+            except (LiveTradingError, Exception) as e:
+                logger.debug("HTX %s position failed: %s", tag, e)
+                last_err = e
+        logger.warning("HTX all position endpoints failed for symbol=%s, last error: %s", symbol, last_err)
         return {"data": []}
 
     def get_ticker(self, *, symbol: str) -> Dict[str, Any]:
@@ -429,19 +419,29 @@ class HtxClient(BaseRestClient):
         swap_coid = self._format_swap_client_order_id(client_order_id)
         if swap_coid is not None:
             body["client_order_id"] = swap_coid
+        return self._place_swap_order(body)
+
+    def _place_swap_order(self, body: Dict[str, Any]) -> LiveOrderResult:
+        """Try v1-cross → v5-cross → v1-isolated order endpoints."""
         cross_body = dict(body)
         cross_body["margin_account"] = "USDT"
-        try:
-            raw = self._swap_private_request("POST", "/linear-swap-api/v1/swap_cross_order", json_body=cross_body)
-            data = raw.get("data") or {}
-            oid = str(data.get("order_id_str") or data.get("order_id") or "")
-            return LiveOrderResult(exchange_id="htx", exchange_order_id=oid, filled=0.0, avg_price=0.0, raw=raw)
-        except LiveTradingError as e:
-            logger.info("HTX swap_cross_order failed, trying swap_order: %s", e)
-        raw = self._swap_private_request("POST", "/linear-swap-api/v1/swap_order", json_body=body)
-        data = raw.get("data") or {}
-        oid = str(data.get("order_id_str") or data.get("order_id") or "")
-        return LiveOrderResult(exchange_id="htx", exchange_order_id=oid, filled=0.0, avg_price=0.0, raw=raw)
+        order_endpoints = [
+            ("v1-cross", "/linear-swap-api/v1/swap_cross_order", cross_body),
+            ("v5-cross", "/linear-swap-api/v5/swap_cross_order", cross_body),
+            ("v1-isolated", "/linear-swap-api/v1/swap_order", body),
+        ]
+        last_err: Optional[Exception] = None
+        for tag, path, req_body in order_endpoints:
+            try:
+                raw = self._swap_private_request("POST", path, json_body=req_body)
+                data = raw.get("data") or {}
+                oid = str(data.get("order_id_str") or data.get("order_id") or "")
+                logger.info("HTX order succeeded via %s, order_id=%s", tag, oid)
+                return LiveOrderResult(exchange_id="htx", exchange_order_id=oid, filled=0.0, avg_price=0.0, raw=raw)
+            except LiveTradingError as e:
+                logger.info("HTX %s order failed: %s", tag, e)
+                last_err = e
+        raise last_err or LiveTradingError("HTX all order endpoints failed")
 
     def place_limit_order(
         self,
@@ -497,19 +497,7 @@ class HtxClient(BaseRestClient):
         swap_coid = self._format_swap_client_order_id(client_order_id)
         if swap_coid is not None:
             body["client_order_id"] = swap_coid
-        cross_body = dict(body)
-        cross_body["margin_account"] = "USDT"
-        try:
-            raw = self._swap_private_request("POST", "/linear-swap-api/v1/swap_cross_order", json_body=cross_body)
-            data = raw.get("data") or {}
-            oid = str(data.get("order_id_str") or data.get("order_id") or "")
-            return LiveOrderResult(exchange_id="htx", exchange_order_id=oid, filled=0.0, avg_price=0.0, raw=raw)
-        except LiveTradingError:
-            pass
-        raw = self._swap_private_request("POST", "/linear-swap-api/v1/swap_order", json_body=body)
-        data = raw.get("data") or {}
-        oid = str(data.get("order_id_str") or data.get("order_id") or "")
-        return LiveOrderResult(exchange_id="htx", exchange_order_id=oid, filled=0.0, avg_price=0.0, raw=raw)
+        return self._place_swap_order(body)
 
     def cancel_order(self, *, symbol: str, order_id: str = "", client_order_id: str = "") -> Dict[str, Any]:
         if self.market_type == "spot":

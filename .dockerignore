@@ -5,9 +5,8 @@
 **/.git
 .DS_Store
 
-# Do not send unused frontend source build artifacts
-QuantDinger-Vue-src/node_modules
-QuantDinger-Vue-src/dist
+# Optional local clone of the private Vue repo (never required for this image)
+QuantDinger-Vue-src/
 
 # The open-source repo ships prebuilt frontend assets in `frontend/dist`,
 # and the frontend image copies them directly, so keep this directory included.

@@ -1,12 +1,53 @@
 """
 QuantDinger Python API - Flask application factory.
 """
-from flask import Flask
-from flask_cors import CORS
+import math
 import logging
 import traceback
 
+from flask import Flask
+from flask.json.provider import DefaultJSONProvider
+from flask_cors import CORS
+
 from app.utils.logger import setup_logger, get_logger
+
+
+class SafeJSONProvider(DefaultJSONProvider):
+    """JSON provider that converts NaN / Infinity to null.
+
+    Python's ``json.dumps`` with ``allow_nan=True`` (the default) emits
+    literal ``NaN`` / ``Infinity`` tokens which are **not** valid JSON per
+    RFC 8259.  JavaScript's ``JSON.parse()`` will throw on them, breaking
+    every frontend consumer.  This provider silently replaces those values
+    with ``None`` (→ ``null``) so the output is always spec-compliant.
+    """
+
+    @staticmethod
+    def default(o):
+        """Handle non-serializable objects (same as super)."""
+        return DefaultJSONProvider.default(o)
+
+    def dumps(self, obj, **kwargs):
+        kwargs.setdefault("default", self.default)
+        return _safe_json_dumps(obj, **kwargs)
+
+
+def _safe_json_dumps(obj, **kwargs):
+    """Recursively sanitize NaN/Inf then serialize."""
+    import json
+    return json.dumps(_sanitize(obj), **kwargs)
+
+
+def _sanitize(obj):
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize(v) for v in obj]
+    return obj
 
 logger = get_logger(__name__)
 
@@ -179,7 +220,9 @@ def create_app(config_name='default'):
         Flask app
     """
     app = Flask(__name__)
-    
+    app.json_provider_class = SafeJSONProvider
+    app.json = SafeJSONProvider(app)
+
     app.config['JSON_AS_ASCII'] = False
     
     CORS(app)

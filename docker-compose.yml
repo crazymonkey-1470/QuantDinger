@@ -8,8 +8,8 @@
 #   3. docker-compose up -d --build
 #   4. Open http://localhost:8888
 #
-# Frontend image: nginx serving prebuilt files from `frontend/dist`.
-# The open-source repo does not require Node.js to build the frontend image.
+# Frontend image: nginx serving prebuilt files from `frontend/dist` only.
+# Vue source is maintained separately; build there and sync dist into this repo.
 #
 # Note: The container will NOT start if SECRET_KEY is using the default value.
 #       This is a security measure to prevent insecure deployments.
@@ -47,6 +47,24 @@ services:
       retries: 5
 
   # ========================
+  # Redis (optional cache layer)
+  # ========================
+  redis:
+    image: ${IMAGE_PREFIX:-}redis:7-alpine
+    container_name: quantdinger-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-127.0.0.1:6379}:6379"
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================
   # Backend API (Python/Flask)
   # ========================
   backend:
@@ -59,6 +77,8 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "${BACKEND_PORT:-127.0.0.1:5000}:5000"
@@ -73,6 +93,9 @@ services:
       - TZ=${TZ:-Asia/Shanghai}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-quantdinger}:${POSTGRES_PASSWORD:-quantdinger123}@postgres:5432/${POSTGRES_DB:-quantdinger}
       - DB_TYPE=postgresql
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CACHE_ENABLED=true
     networks:
       - quantdinger-network
     healthcheck:

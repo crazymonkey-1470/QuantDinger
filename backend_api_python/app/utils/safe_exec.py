@@ -217,7 +217,8 @@ def validate_code_safety(code: str) -> Tuple[bool, Optional[str]]:
         r'\b__setattr__\b',
         r'\b__dict__\b',
         r'\bglobals\s*\(',
-        r'\blocals\s*\(',
+        # locals() is allowed: LLM-generated indicators often use it to build output dicts;
+        # execution remains in a restricted exec() frame (no elevated privileges).
         r'\bdir\s*\(',
         r'\btype\s*\(.*\)\s*\(',  # type() 可能用于创建新类型
         r'\b__class__\b',
@@ -257,7 +258,8 @@ def validate_code_safety(code: str) -> Tuple[bool, Optional[str]]:
         dangerous_functions = [
             'eval', 'exec', 'compile', '__import__',
             'getattr', 'setattr', 'delattr',  # hasattr 已移除，它是安全的
-            'globals', 'locals', 'vars', 'dir', 'type'
+            # locals: allowed for typical indicator patterns (e.g. merging into output)
+            'globals', 'vars', 'dir', 'type'
         ]
         
         # 检查是否有危险的函数调用

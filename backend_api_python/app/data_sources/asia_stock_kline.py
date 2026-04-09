@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 import pandas as pd
 import requests
@@ -26,6 +27,23 @@ import requests
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+
+
+@contextmanager
+def _bypass_proxy() -> Generator[None, None, None]:
+    """Temporarily clear proxy env vars for AkShare calls to Chinese domestic sites."""
+    saved = {}
+    for key in _PROXY_KEYS:
+        val = os.environ.pop(key, None)
+        if val is not None:
+            saved[key] = val
+    try:
+        yield
+    finally:
+        for key, val in saved.items():
+            os.environ[key] = val
 
 _MAX_ATTEMPTS = 3
 _BACKOFF_BASE_SEC = 1.5
@@ -131,17 +149,21 @@ _TD_INTERVAL_MAP = {
 
 
 def _td_symbol_and_exchange(tencent_code: str, is_hk: bool) -> tuple[str, str]:
-    """Convert Tencent code to Twelve Data (symbol, exchange)."""
+    """Convert Tencent code to Twelve Data (symbol, exchange).
+
+    Twelve Data time_series requires exchange *name* (SSE / SZSE / HKEX),
+    not the MIC code (XSHG / XSHE / XHKG).
+    """
     c = (tencent_code or "").strip().upper()
     if is_hk:
         num = c.replace("HK", "")
         if num.isdigit():
             num = str(int(num)).zfill(4)
-        return num, "XHKG"
+        return num, "HKEX"
     digits = c.lstrip("SHSZ")
     if c.startswith("SH") or digits.startswith("6"):
-        return digits, "XSHG"
-    return digits, "XSHE"
+        return digits, "SSE"
+    return digits, "SZSE"
 
 
 def fetch_twelvedata_klines(
@@ -201,6 +223,8 @@ def fetch_twelvedata_klines(
         msg = data.get("message", str(data))
         if code == 429 or "API credits" in msg or "minute limit" in msg:
             logger.warning("TwelveData rate limit for %s/%s: %s", symbol, exchange, msg)
+        elif "Pro" in msg or "Venture" in msg or "upgrading" in msg:
+            logger.debug("TwelveData plan limit %s/%s tf=%s: %s", symbol, exchange, timeframe, msg)
         else:
             logger.warning("TwelveData error %s/%s tf=%s: %s", symbol, exchange, timeframe, msg)
         return []
@@ -482,10 +506,11 @@ def fetch_akshare_minute_klines(
     df: Any = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
-            if is_hk:
-                df = ak.stock_hk_hist_min_em(symbol=sym, period=p, adjust=adj, start_date=sd, end_date=ed)
-            else:
-                df = ak.stock_zh_a_hist_min_em(symbol=sym, start_date=sd, end_date=ed, period=p, adjust=adj)
+            with _bypass_proxy():
+                if is_hk:
+                    df = ak.stock_hk_hist_min_em(symbol=sym, period=p, adjust=adj, start_date=sd, end_date=ed)
+                else:
+                    df = ak.stock_zh_a_hist_min_em(symbol=sym, start_date=sd, end_date=ed, period=p, adjust=adj)
             break
         except Exception as e:
             if attempt + 1 < _MAX_ATTEMPTS and _is_transient(e):
@@ -526,10 +551,11 @@ def fetch_akshare_weekly_klines(
     df: Any = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
-            if is_hk:
-                df = ak.stock_hk_hist(symbol=sym, period="weekly", start_date=start_s, end_date=end_s, adjust="qfq")
-            else:
-                df = ak.stock_zh_a_hist(symbol=sym, period="weekly", start_date=start_s, end_date=end_s, adjust="qfq")
+            with _bypass_proxy():
+                if is_hk:
+                    df = ak.stock_hk_hist(symbol=sym, period="weekly", start_date=start_s, end_date=end_s, adjust="qfq")
+                else:
+                    df = ak.stock_zh_a_hist(symbol=sym, period="weekly", start_date=start_s, end_date=end_s, adjust="qfq")
             break
         except Exception as e:
             if attempt + 1 < _MAX_ATTEMPTS and _is_transient(e):

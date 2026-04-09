@@ -196,7 +196,7 @@ def create_client(exchange_config: Dict[str, Any], *, market_type: str = "swap")
     if exchange_id == "htx":
         if is_demo and not (_get(exchange_config, "base_url", "baseUrl") or _get(exchange_config, "futures_base_url", "futuresBaseUrl")):
             raise LiveTradingError("HTX demo/testnet is not configured in this project yet. Please disable demo mode or provide explicit testnet base_url/futures_base_url.")
-        spot_url = _get(exchange_config, "base_url", "baseUrl") or "https://api.huobi.pro"
+        spot_url = _get(exchange_config, "base_url", "baseUrl") or "https://api.htx.com"
         futures_url = _get(exchange_config, "futures_base_url", "futuresBaseUrl") or "https://api.hbdm.com"
         broker_id = _get(exchange_config, "broker_id", "brokerId") or "AA7b890547"
         return HtxClient(

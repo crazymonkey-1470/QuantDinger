@@ -34,6 +34,29 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 
 # Optional: normalize outbound proxy settings for the whole process.
 # This makes requests/yfinance/finnhub/tiingo/GoogleSearch etc work behind a local proxy.
+#
+# Chinese domestic data sources (AkShare → Eastmoney/Sina/etc.) should bypass the proxy
+# to avoid unnecessary round-trips through overseas proxies.
+_CN_FINANCIAL_DOMAINS = ",".join([
+    ".eastmoney.com",
+    ".sina.com.cn",
+    ".sinajs.cn",
+    ".10jqka.com.cn",
+    ".ssec.com.cn",
+    ".szse.cn",
+    ".hexun.com",
+    ".cninfo.com.cn",
+    ".gtimg.cn",
+    ".qq.com",
+    ".tencent.com",
+    ".mairui.club",
+    ".akshare.xyz",
+    ".baostock.com",
+    ".stcn.com",
+    ".p5w.net",
+    ".finance.sina.com.cn",
+])
+
 def _apply_proxy_env():
     def _set_if_blank(key: str, value: str) -> None:
         """
@@ -54,6 +77,16 @@ def _apply_proxy_env():
     _set_if_blank('ALL_PROXY', proxy_url)
     _set_if_blank('HTTP_PROXY', proxy_url)
     _set_if_blank('HTTPS_PROXY', proxy_url)
+
+    # Bypass proxy for Chinese domestic financial data sources.
+    # AkShare calls Eastmoney/Sina/etc. which should go direct, not through overseas proxy.
+    existing_no_proxy = (os.getenv('NO_PROXY') or '').strip()
+    if existing_no_proxy:
+        merged = existing_no_proxy + "," + _CN_FINANCIAL_DOMAINS
+    else:
+        merged = _CN_FINANCIAL_DOMAINS
+    os.environ['NO_PROXY'] = merged
+    os.environ['no_proxy'] = merged
 
 _apply_proxy_env()
 
@@ -79,17 +112,11 @@ def main():
     default_secret = "quantdinger-secret-key-change-me"
     current_secret = Config.SECRET_KEY
     if not Config.DEBUG and current_secret == default_secret:
-        msg = (
-            "\n[SECURITY ERROR] SECRET_KEY is using the default example value.\n"
-            "You MUST change SECRET_KEY in backend_api_python/.env before running in production.\n"
-            "Example:\n"
-            "  SECRET_KEY=$(python - << 'EOF'\n"
-            "import secrets; print(secrets.token_hex(32))\n"
-            "EOF\n"
-        )
-        # Print to both stdout and raise to stop the server
-        print(msg)
-        raise RuntimeError("Insecure SECRET_KEY configuration: using default example value in non-debug mode")
+        import secrets as _secrets
+        new_key = _secrets.token_hex(32)
+        os.environ["SECRET_KEY"] = new_key
+        print("[AUTO] SECRET_KEY was default; generated random key for this session.")
+        print("[TIP]  Set a persistent SECRET_KEY in backend_api_python/.env for production.")
     
     print(f"Service starting at: http://{Config.HOST}:{Config.PORT}")
     

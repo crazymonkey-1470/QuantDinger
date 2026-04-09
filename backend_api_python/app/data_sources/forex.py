@@ -1,12 +1,14 @@
 """
 外汇数据源
-使用 Tiingo 获取外汇数据
+三级降级: Twelve Data → Tiingo → yfinance
 """
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
+import os
 import time
 import requests
 import threading
+import yfinance as yf
 
 from app.data_sources.base import BaseDataSource, TIMEFRAME_SECONDS
 from app.utils.logger import get_logger
@@ -14,84 +16,168 @@ from app.config import TiingoConfig, APIKeys
 
 logger = get_logger(__name__)
 
-# 全局缓存 - 减少 Tiingo API 调用
+# 全局缓存
 _forex_cache: Dict[str, Dict[str, Any]] = {}
 _forex_cache_lock = threading.Lock()
-_FOREX_CACHE_TTL = 60  # 外汇价格缓存 60 秒 (Tiingo 免费 API 限制严格)
+_FOREX_CACHE_TTL = 60
+
+# ---------------------------------------------------------------------------
+# Twelve Data helpers
+# ---------------------------------------------------------------------------
+
+_TD_INTERVAL_MAP = {
+    '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min',
+    '1H': '1h', '4H': '4h', '1D': '1day', '1W': '1week', '1M': '1month',
+}
+
+_TD_SYMBOL_MAP = {
+    'XAUUSD': 'XAU/USD', 'XAGUSD': 'XAG/USD',
+    'EURUSD': 'EUR/USD', 'GBPUSD': 'GBP/USD', 'USDJPY': 'USD/JPY',
+    'AUDUSD': 'AUD/USD', 'USDCAD': 'USD/CAD', 'USDCHF': 'USD/CHF',
+    'NZDUSD': 'NZD/USD', 'GBPJPY': 'GBP/JPY', 'EURJPY': 'EUR/JPY',
+    'EURGBP': 'EUR/GBP', 'AUDNZD': 'AUD/NZD', 'USDCNH': 'USD/CNH',
+}
+
+_YF_SYMBOL_MAP = {
+    'XAUUSD': 'GC=F', 'XAGUSD': 'SI=F',
+    'EURUSD': 'EURUSD=X', 'GBPUSD': 'GBPUSD=X', 'USDJPY': 'USDJPY=X',
+    'AUDUSD': 'AUDUSD=X', 'USDCAD': 'USDCAD=X', 'USDCHF': 'USDCHF=X',
+    'NZDUSD': 'NZDUSD=X', 'GBPJPY': 'GBPJPY=X', 'EURJPY': 'EURJPY=X',
+    'EURGBP': 'EURGBP=X', 'USDCNH': 'USDCNH=X',
+}
+
+_YF_TIMEFRAME_MAP = {
+    '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+    '1H': '1h', '4H': '4h', '1D': '1d', '1W': '1wk', '1M': '1mo',
+}
+
+
+def _get_td_api_key() -> str:
+    try:
+        from app.utils.config_loader import load_addon_config
+        key = load_addon_config().get("twelve_data", {}).get("api_key", "")
+        if key:
+            return key
+    except Exception:
+        pass
+    return (os.getenv("TWELVE_DATA_API_KEY") or "").strip()
+
+
+def _td_forex_symbol(symbol: str) -> str:
+    """Convert internal symbol (e.g. EURUSD) to Twelve Data format (EUR/USD)."""
+    s = symbol.upper().strip()
+    if s in _TD_SYMBOL_MAP:
+        return _TD_SYMBOL_MAP[s]
+    if "/" in s:
+        return s
+    if len(s) == 6:
+        return f"{s[:3]}/{s[3:]}"
+    return s
+
+
+def _td_request(url: str, params: dict, timeout: int = 20) -> Optional[dict]:
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, params=params, timeout=timeout)
+            data = resp.json()
+            if data.get("status") == "error":
+                logger.debug("TwelveData error: %s", data.get("message", ""))
+                return None
+            return data
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            logger.debug("TwelveData request failed: %s", e)
+    return None
 
 
 class ForexDataSource(BaseDataSource):
-    """外汇数据源 (Tiingo)"""
-    
-    name = "Forex/Tiingo"
-    
-    # Tiingo resampleFreq 映射
-    # Tiingo 免费账户支持: 5min, 15min, 30min, 1hour, 4hour, 1day
-    # 注意: 1min 需要付费订阅, 1week/1month 不被 Tiingo FX API 支持
+    """外汇数据源 — Twelve Data (primary) + Tiingo (fallback)"""
+
+    name = "Forex/TwelveData+Tiingo"
+
     TIMEFRAME_MAP = {
-        '1m': '1min',      # 需要付费订阅
-        '5m': '5min',
-        '15m': '15min',
-        '30m': '30min',
-        '1H': '1hour',
-        '4H': '4hour',
-        '1D': '1day',
-        '1W': None,        # Tiingo 不支持，需要聚合
-        '1M': None         # Tiingo 不支持，需要聚合
+        '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min',
+        '1H': '1hour', '4H': '4hour', '1D': '1day',
+        '1W': None, '1M': None,
     }
-    
-    # 外汇对映射 (Tiingo 使用标准 ticker，如 eurusd, audusd)
-    # 大写也可以，Tiingo 通常不区分大小写，但建议统一
+
     SYMBOL_MAP = {
-        # 贵金属 (Tiingo 不一定支持所有 OANDA 格式的贵金属，通常是 XAUUSD)
-        'XAUUSD': 'xauusd',
-        'XAGUSD': 'xagusd',
-        # 主要货币对
-        'EURUSD': 'eurusd',
-        'GBPUSD': 'gbpusd',
-        'USDJPY': 'usdjpy',
-        'AUDUSD': 'audusd',
-        'USDCAD': 'usdcad',
-        'USDCHF': 'usdchf',
+        'XAUUSD': 'xauusd', 'XAGUSD': 'xagusd',
+        'EURUSD': 'eurusd', 'GBPUSD': 'gbpusd', 'USDJPY': 'usdjpy',
+        'AUDUSD': 'audusd', 'USDCAD': 'usdcad', 'USDCHF': 'usdchf',
         'NZDUSD': 'nzdusd',
     }
-    
+
     def __init__(self):
         self.base_url = TiingoConfig.BASE_URL
-        if not APIKeys.TIINGO_API_KEY:
-             logger.warning("Tiingo API key is not configured; FX data will be unavailable")
+        td_key = _get_td_api_key()
+        tiingo_key = APIKeys.TIINGO_API_KEY
+        if not td_key and not tiingo_key:
+            logger.warning("Neither Twelve Data nor Tiingo API key configured; FX data will be limited")
     
     def get_ticker(self, symbol: str) -> Dict[str, Any]:
         """
         获取外汇实时报价
-        
-        使用 Tiingo FX Top-of-Book API 获取实时报价
-        带有 60 秒缓存以避免频繁触发 Tiingo 速率限制
-        
-        Returns:
-            dict: {
-                'last': 当前价格 (mid price),
-                'bid': 买价,
-                'ask': 卖价,
-                'change': 涨跌额,
-                'changePercent': 涨跌幅
-            }
+        Priority: Twelve Data → Tiingo → yfinance
         """
-        api_key = APIKeys.TIINGO_API_KEY
-        if not api_key:
-            logger.warning("Tiingo API key not configured")
-            return {'last': 0, 'symbol': symbol}
-        
-        # 检查缓存
         cache_key = f"ticker_{symbol}"
         with _forex_cache_lock:
             cached = _forex_cache.get(cache_key)
-            if cached:
-                cache_time = cached.get('_cache_time', 0)
-                if time.time() - cache_time < _FOREX_CACHE_TTL:
-                    logger.debug(f"Using cached forex ticker for {symbol}")
-                    return cached
-        
+            if cached and time.time() - cached.get('_cache_time', 0) < _FOREX_CACHE_TTL:
+                return cached
+
+        for fetcher in (
+            self._get_ticker_twelvedata,
+            self._get_ticker_tiingo,
+            self._get_ticker_yfinance,
+        ):
+            try:
+                result = fetcher(symbol)
+                if result and result.get("last", 0) > 0:
+                    result["_cache_time"] = time.time()
+                    with _forex_cache_lock:
+                        _forex_cache[cache_key] = result
+                    return result
+            except Exception as e:
+                logger.debug("Forex ticker fetcher %s failed for %s: %s", fetcher.__name__, symbol, e)
+
+        return {'last': 0, 'symbol': symbol}
+
+    def _get_ticker_twelvedata(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetch forex quote from Twelve Data /quote endpoint."""
+        api_key = _get_td_api_key()
+        if not api_key:
+            return None
+        td_sym = _td_forex_symbol(symbol)
+        data = _td_request("https://api.twelvedata.com/quote", {
+            "symbol": td_sym, "apikey": api_key,
+        })
+        if not data or not data.get("close"):
+            return None
+        try:
+            last = float(data.get("close") or 0)
+            prev = float(data.get("previous_close") or 0)
+            change = last - prev if prev else 0
+            change_pct = (change / prev * 100) if prev else 0
+            return {
+                "last": round(last, 5),
+                "change": round(change, 5),
+                "changePercent": round(change_pct, 2),
+                "previousClose": round(prev, 5),
+                "symbol": symbol,
+            }
+        except Exception as e:
+            logger.debug("TwelveData forex quote parse failed %s: %s", symbol, e)
+            return None
+
+    def _get_ticker_tiingo(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetch forex quote from Tiingo (legacy fallback)."""
+        api_key = APIKeys.TIINGO_API_KEY
+        if not api_key:
+            return None
+
         try:
             # 解析 symbol
             tiingo_symbol = self.SYMBOL_MAP.get(symbol)
@@ -169,27 +255,47 @@ class ForexDataSource(BaseDataSource):
                 except Exception:
                     pass  # 涨跌计算失败不影响主要功能
                 
-                result = {
+                return {
                     'last': round(last_price, 5),
                     'bid': round(bid, 5),
                     'ask': round(ask, 5),
                     'change': round(change, 5),
                     'changePercent': round(change_pct, 2),
                     'previousClose': round(prev_close, 5) if prev_close else 0,
-                    '_cache_time': time.time()
+                    'symbol': symbol,
                 }
-                
-                # 缓存结果
-                with _forex_cache_lock:
-                    _forex_cache[cache_key] = result
-                
-                return result
-                
+
         except Exception as e:
-            logger.error(f"Failed to get forex ticker for {symbol}: {e}")
-        
-        return {'last': 0, 'symbol': symbol}
-    
+            logger.debug("Tiingo forex ticker failed %s: %s", symbol, e)
+
+        return None
+
+    def _get_ticker_yfinance(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetch forex quote from yfinance (Tier 3 fallback)."""
+        yf_sym = _YF_SYMBOL_MAP.get(symbol.upper())
+        if not yf_sym:
+            s = symbol.upper()
+            yf_sym = f"{s}=X" if len(s) == 6 and not s.endswith("=X") else s
+        try:
+            t = yf.Ticker(yf_sym)
+            hist = t.history(period="2d", interval="1d")
+            if hist is None or hist.empty:
+                return None
+            current = float(hist["Close"].iloc[-1])
+            prev = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else 0
+            change = current - prev if prev else 0
+            change_pct = (change / prev * 100) if prev else 0
+            return {
+                "last": round(current, 5),
+                "change": round(change, 5),
+                "changePercent": round(change_pct, 2),
+                "previousClose": round(prev, 5),
+                "symbol": symbol,
+            }
+        except Exception as e:
+            logger.debug("yfinance forex ticker failed %s: %s", symbol, e)
+            return None
+
     def _get_timeframe_seconds(self, timeframe: str) -> int:
         """获取时间周期对应的秒数"""
         return TIMEFRAME_SECONDS.get(timeframe, 86400)
@@ -203,17 +309,75 @@ class ForexDataSource(BaseDataSource):
     ) -> List[Dict[str, Any]]:
         """
         获取外汇K线数据
-        
-        Args:
-            symbol: 外汇对代码（如 XAUUSD, EURUSD）
-            timeframe: 时间周期
-            limit: 数据条数
-            before_time: 结束时间戳
+        Priority: Twelve Data → Tiingo → yfinance
         """
-        # 动态获取 API Key
+        for fetcher in (
+            self._get_kline_twelvedata,
+            self._get_kline_tiingo,
+            self._get_kline_yfinance,
+        ):
+            try:
+                bars = fetcher(symbol, timeframe, limit, before_time)
+                if bars:
+                    return bars
+            except Exception as e:
+                logger.debug("Forex kline fetcher %s failed for %s: %s", fetcher.__name__, symbol, e)
+        return []
+
+    def _get_kline_twelvedata(
+        self, symbol: str, timeframe: str, limit: int, before_time: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Fetch forex K-lines from Twelve Data /time_series."""
+        api_key = _get_td_api_key()
+        if not api_key:
+            return []
+        interval = _TD_INTERVAL_MAP.get(timeframe)
+        if not interval:
+            return []
+        td_sym = _td_forex_symbol(symbol)
+        params: Dict[str, Any] = {
+            "symbol": td_sym,
+            "interval": interval,
+            "outputsize": min(int(limit), 5000),
+            "apikey": api_key,
+            "format": "JSON",
+            "dp": "5",
+        }
+        if before_time:
+            params["end_date"] = datetime.fromtimestamp(int(before_time)).strftime("%Y-%m-%d %H:%M:%S")
+
+        data = _td_request("https://api.twelvedata.com/time_series", params)
+        if not data:
+            return []
+        values = data.get("values") or []
+        if not values:
+            return []
+        klines = []
+        for v in values:
+            try:
+                dt = datetime.fromisoformat(v["datetime"])
+                klines.append({
+                    "time": int(dt.timestamp()),
+                    "open": float(v["open"]),
+                    "high": float(v["high"]),
+                    "low": float(v["low"]),
+                    "close": float(v["close"]),
+                    "volume": 0.0,
+                })
+            except Exception:
+                continue
+        klines.sort(key=lambda x: x["time"])
+        if len(klines) > limit:
+            klines = klines[-limit:]
+        logger.debug("TwelveData forex kline %s %s: %d bars", td_sym, timeframe, len(klines))
+        return klines
+
+    def _get_kline_tiingo(
+        self, symbol: str, timeframe: str, limit: int, before_time: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Fetch forex K-lines from Tiingo (legacy fallback)."""
         api_key = APIKeys.TIINGO_API_KEY
         if not api_key:
-            logger.error("Tiingo API key is not configured")
             return []
             
         try:
@@ -476,3 +640,50 @@ class ForexDataSource(BaseDataSource):
             monthly_klines.append(month_data)
         
         return monthly_klines
+
+    def _get_kline_yfinance(
+        self, symbol: str, timeframe: str, limit: int, before_time: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Fetch forex K-lines from yfinance (Tier 3 fallback)."""
+        yf_sym = _YF_SYMBOL_MAP.get(symbol.upper())
+        if not yf_sym:
+            s = symbol.upper()
+            yf_sym = f"{s}=X" if len(s) == 6 and not s.endswith("=X") else s
+
+        yf_interval = _YF_TIMEFRAME_MAP.get(timeframe)
+        if not yf_interval:
+            return []
+
+        try:
+            if before_time:
+                end_dt = datetime.fromtimestamp(before_time)
+            else:
+                end_dt = datetime.now()
+
+            tf_seconds = self._get_timeframe_seconds(timeframe)
+            start_dt = end_dt - timedelta(seconds=tf_seconds * limit * 1.5)
+            end_dt_inclusive = end_dt + timedelta(days=1)
+
+            t = yf.Ticker(yf_sym)
+            df = t.history(start=start_dt, end=end_dt_inclusive, interval=yf_interval)
+            if df is None or df.empty:
+                return []
+
+            klines = []
+            for idx, row in df.iterrows():
+                klines.append({
+                    'time': int(idx.timestamp()),
+                    'open': float(row['Open']),
+                    'high': float(row['High']),
+                    'low': float(row['Low']),
+                    'close': float(row['Close']),
+                    'volume': float(row.get('Volume', 0) or 0),
+                })
+            klines.sort(key=lambda x: x['time'])
+            if len(klines) > limit:
+                klines = klines[-limit:]
+            logger.debug("yfinance forex kline %s %s: %d bars", yf_sym, timeframe, len(klines))
+            return klines
+        except Exception as e:
+            logger.debug("yfinance forex kline failed %s: %s", symbol, e)
+            return []

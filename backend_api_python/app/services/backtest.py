@@ -4,6 +4,8 @@ Backtest Service
 import hashlib
 import json
 import math
+import threading
+import time as _time
 import traceback
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -18,6 +20,45 @@ from app.utils.db import get_db_connection
 from app.services.indicator_params import IndicatorParamsParser, IndicatorCaller
 
 logger = get_logger(__name__)
+
+
+class _KlineCache:
+    """Simple in-memory K-line cache with TTL to avoid repeated external API calls."""
+
+    def __init__(self, max_size: int = 64):
+        self._store: Dict[str, Any] = {}
+        self._lock = threading.Lock()
+        self._max_size = max_size
+
+    @staticmethod
+    def _ttl_for_timeframe(timeframe: str) -> int:
+        if timeframe in ('1m', '5m', '15m', '30m'):
+            return 300   # 5 min for intraday
+        return 1800      # 30 min for daily+
+
+    def get(self, key: str) -> Optional[pd.DataFrame]:
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            if _time.time() > entry['expires']:
+                del self._store[key]
+                return None
+            return entry['df'].copy()
+
+    def put(self, key: str, df: pd.DataFrame, timeframe: str):
+        ttl = self._ttl_for_timeframe(timeframe)
+        with self._lock:
+            if len(self._store) >= self._max_size:
+                oldest_key = min(self._store, key=lambda k: self._store[k]['expires'])
+                del self._store[oldest_key]
+            self._store[key] = {
+                'df': df.copy(),
+                'expires': _time.time() + ttl
+            }
+
+
+_kline_cache = _KlineCache()
 
 
 class BacktestService:
@@ -1647,7 +1688,7 @@ class BacktestService:
         start_date: datetime,
         end_date: datetime
     ) -> pd.DataFrame:
-        """Fetch candle data and convert to DataFrame"""
+        """Fetch candle data and convert to DataFrame (with in-memory caching)"""
         # Calculate required candle count
         total_seconds = (end_date - start_date).total_seconds()
         tf_seconds = self.TIMEFRAME_SECONDS.get(timeframe, 86400)
@@ -1655,7 +1696,12 @@ class BacktestService:
         
         # Calculate before_time (end date + 1 day)
         before_time = int((end_date + timedelta(days=1)).timestamp())
-        
+
+        cache_key = f"{market}:{symbol}:{timeframe}:{start_date.date()}:{end_date.date()}"
+        cached = _kline_cache.get(cache_key)
+        if cached is not None and not cached.empty:
+            logger.info(f"K-line cache HIT for {cache_key} ({len(cached)} candles)")
+            return cached
         
         # Fetch data
         kline_data = DataSourceFactory.get_kline(
@@ -1745,6 +1791,7 @@ class BacktestService:
                 return pd.DataFrame()
             
             logger.info(f"After filtering: {len(df_filtered)} candles remain for backtest (effective range: {effective_start} to {effective_end})")
+            _kline_cache.put(cache_key, df_filtered, timeframe)
             return df_filtered
             
         except Exception as e:

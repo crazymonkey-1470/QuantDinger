@@ -154,7 +154,7 @@ def get_menu_footer_config():
 def search_symbols():
     """
     Lightweight symbol search.
-    In local-only mode we keep this simple; frontend allows manual input when no results.
+    DB seed first; for Crypto, falls back to exchange market list when DB yields few results.
     """
     try:
         market = (request.args.get('market') or '').strip()
@@ -165,11 +165,70 @@ def search_symbols():
             return jsonify({'code': 1, 'msg': 'success', 'data': []})
 
         out = seed_search_symbols(market=market, keyword=keyword, limit=limit)
+
+        if market == 'Crypto' and len(out) < 3:
+            extra = _search_crypto_exchange(keyword, limit - len(out), {r['symbol'] for r in out})
+            out.extend(extra)
+
         return jsonify({'code': 1, 'msg': 'success', 'data': out})
     except Exception as e:
         logger.error(f"search_symbols failed: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({'code': 0, 'msg': str(e), 'data': []}), 500
+
+
+_crypto_markets_cache: dict = {"data": None, "ts": 0}
+
+
+def _search_crypto_exchange(keyword: str, limit: int, existing: set) -> list:
+    """
+    Dynamically search exchange (via CCXT) for crypto pairs matching keyword.
+    Caches the full market list for 4 hours to avoid repeated API calls.
+    """
+    if limit <= 0:
+        return []
+    try:
+        import ccxt  # type: ignore
+        from app.config.data_sources import CCXTConfig
+
+        now = time.time()
+        if _crypto_markets_cache["data"] and now - _crypto_markets_cache["ts"] < 14400:
+            markets = _crypto_markets_cache["data"]
+        else:
+            exchange_cls = getattr(ccxt, CCXTConfig.DEFAULT_EXCHANGE, None) or ccxt.gate
+            ex = exchange_cls()
+            ex.load_markets()
+            markets = []
+            for sym, info in ex.markets.items():
+                if not info.get("active"):
+                    continue
+                quote = info.get("quote", "")
+                if quote != "USDT":
+                    continue
+                markets.append({
+                    "symbol": sym,
+                    "base": info.get("base", ""),
+                    "name": info.get("base", sym),
+                })
+            _crypto_markets_cache["data"] = markets
+            _crypto_markets_cache["ts"] = now
+            logger.info("Cached %d USDT crypto pairs from %s", len(markets), CCXTConfig.DEFAULT_EXCHANGE)
+
+        kw = keyword.upper().replace("/USDT", "").replace("/", "")
+        results = []
+        for m in markets:
+            sym = m["symbol"]
+            if sym in existing:
+                continue
+            base_up = m["base"].upper()
+            if kw in base_up or kw in sym.upper():
+                results.append({"market": "Crypto", "symbol": sym, "name": m["name"]})
+                if len(results) >= limit:
+                    break
+        return results
+    except Exception as e:
+        logger.debug("_search_crypto_exchange failed: %s", e)
+        return []
 
 @market_bp.route('/symbols/hot', methods=['GET'])
 def get_hot_symbols():

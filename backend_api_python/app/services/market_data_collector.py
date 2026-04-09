@@ -627,6 +627,7 @@ class MarketDataCollector:
         CN/HK fundamentals — multi-tier:
           Tier 1: Twelve Data /statistics (globally stable, paid)
           Tier 2: AkShare / Eastmoney (fragile overseas)
+          Tier 3: AkShare financial statements (revenue growth, debt, FCF)
           + Tencent quote for live price fields
         """
         try:
@@ -638,8 +639,14 @@ class MarketDataCollector:
             )
             from app.data_sources.cn_hk_fundamentals import (
                 fetch_twelvedata_fundamental,
+                fetch_twelvedata_statements,
+                fetch_twelvedata_earnings,
                 fetch_cn_fundamental_akshare,
                 fetch_hk_fundamental_akshare,
+                fetch_cn_financial_indicators,
+                fetch_cn_financial_statements,
+                fetch_hk_financial_indicators,
+                fetch_hk_financial_statements,
             )
 
             code = normalize_cn_code(symbol) if market == 'CNStock' else normalize_hk_code(symbol)
@@ -658,6 +665,11 @@ class MarketDataCollector:
                 "52w_low": None,
                 "roe": None,
                 "eps": None,
+                "revenue_growth": None,
+                "profit_margin": None,
+                "debt_to_equity": None,
+                "current_ratio": None,
+                "free_cash_flow": None,
                 "last": t.get("last"),
                 "previous_close": t.get("previousClose"),
                 "change_percent": t.get("changePercent"),
@@ -679,7 +691,7 @@ class MarketDataCollector:
                     if v is not None:
                         result[k] = v
 
-            # Tier 2: AkShare (fill any remaining None fields)
+            # Tier 2: AkShare valuation (fill any remaining None fields)
             has_valuation = result.get("pe_ratio") is not None or result.get("pb_ratio") is not None
             if not has_valuation:
                 try:
@@ -698,13 +710,122 @@ class MarketDataCollector:
                         if v is not None and result.get(k) is None:
                             result[k] = v
 
+            # Tier 3: Twelve Data financial statements (globally stable, priority for overseas)
+            _growth_keys = ("revenue_growth", "debt_to_equity", "current_ratio", "free_cash_flow")
+            needs_financials = any(result.get(k) is None for k in _growth_keys)
+            has_statements = "financial_statements" in result
+            if needs_financials or not has_statements:
+                try:
+                    td_stmts = fetch_twelvedata_statements(code, is_hk)
+                except Exception as e:
+                    logger.debug("TwelveData statements failed %s:%s: %s", market, symbol, e)
+                    td_stmts = {}
+                if td_stmts:
+                    stmts_obj = td_stmts.pop("financial_statements", None)
+                    if stmts_obj and not has_statements:
+                        result["financial_statements"] = stmts_obj
+                        result["source"] += "+twelvedata_stmts"
+                    for k, v in td_stmts.items():
+                        if v is not None and result.get(k) is None:
+                            result[k] = v
+                    filled_td = sum(1 for k in _growth_keys if result.get(k) is not None)
+                    logger.info("TwelveData statements for %s:%s: %d/%d growth keys filled",
+                                market, symbol, filled_td, len(_growth_keys))
+
+            # Tier 4: AkShare financial indicators (fallback for domestic servers)
+            needs_financials = any(result.get(k) is None for k in _growth_keys)
+            if needs_financials:
+                try:
+                    if is_hk:
+                        fin_data = fetch_hk_financial_indicators(code)
+                    else:
+                        fin_data = fetch_cn_financial_indicators(code)
+                except Exception as e:
+                    logger.debug("AkShare CN/HK financial indicators failed %s:%s: %s", market, symbol, e)
+                    fin_data = {}
+                if fin_data:
+                    result["source"] += "+akshare_financials"
+                    for k, v in fin_data.items():
+                        if v is not None and result.get(k) is None:
+                            result[k] = v
+                    filled = sum(1 for k in _growth_keys if result.get(k) is not None)
+                    logger.info("CN/HK AkShare financial indicators for %s:%s: %d/%d growth keys filled",
+                                market, symbol, filled, len(_growth_keys))
+
+            # Tier 5: Structured financial statements via AkShare (if Twelve Data didn't fill)
+            if "financial_statements" not in result:
+                try:
+                    if is_hk:
+                        stmts = fetch_hk_financial_statements(code)
+                    else:
+                        stmts = fetch_cn_financial_statements(code)
+                    if stmts:
+                        result["financial_statements"] = stmts
+                        result["source"] += "+akshare_stmts"
+                        logger.debug("CN/HK financial statements (AkShare) for %s: %s", symbol, list(stmts.keys()))
+                except Exception as e:
+                    logger.debug("CN/HK financial statements (AkShare) failed %s: %s", symbol, e)
+
+            # Tier 6: Earnings data (quarterly EPS history) — Twelve Data /earnings
+            if "earnings" not in result:
+                try:
+                    td_earnings = fetch_twelvedata_earnings(code, is_hk)
+                    if td_earnings:
+                        result["earnings"] = td_earnings
+                        result["source"] += "+twelvedata_earnings"
+                except Exception as e:
+                    logger.debug("TwelveData earnings failed %s:%s: %s", market, symbol, e)
+
+            # Fallback: build earnings from financial_statements if /earnings failed
+            if "earnings" not in result and "financial_statements" in result:
+                result["earnings"] = self._build_earnings_from_statements(result["financial_statements"])
+
             if not parts and not td and not has_valuation:
                 return None
             return result
         except Exception as e:
             logger.debug(f"CN/HK fundamental failed: {market}:{symbol}: {e}")
             return None
-    
+
+    @staticmethod
+    def _build_earnings_from_statements(stmts: Dict[str, Any]) -> Dict[str, Any]:
+        """Construct an 'earnings' dict from structured financial_statements for CN/HK."""
+        earnings: Dict[str, Any] = {}
+
+        inc = stmts.get("income_statement") or {}
+        latest_date = inc.get("latest_date")
+        revenue = inc.get("total_revenue")
+        net_income = inc.get("net_income")
+        eps = inc.get("eps_diluted")
+
+        if latest_date or revenue or net_income:
+            earnings["quarterly"] = {
+                "latest_quarter": latest_date,
+                "revenue": revenue,
+                "earnings": net_income,
+            }
+            earnings["history"] = [{
+                "date": latest_date or "N/A",
+                "eps_actual": eps,
+                "eps_estimate": None,
+                "surprise": None,
+            }]
+
+        cf = stmts.get("cash_flow") or {}
+        bs = stmts.get("balance_sheet") or {}
+        if cf or bs:
+            summary_parts = []
+            if cf.get("operating_cash_flow") is not None:
+                summary_parts.append(f"Operating CF: {cf['operating_cash_flow']:,.0f}")
+            if cf.get("free_cash_flow") is not None:
+                summary_parts.append(f"FCF: {cf['free_cash_flow']:,.0f}")
+            if bs.get("total_assets") is not None:
+                summary_parts.append(f"Total Assets: {bs['total_assets']:,.0f}")
+            if summary_parts:
+                earnings["financial_summary"] = "; ".join(summary_parts)
+
+        return earnings if earnings else {}
+
     def _get_us_fundamental(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         美股基本面 - Finnhub + yfinance
@@ -1102,10 +1223,12 @@ class MarketDataCollector:
         """
         try:
             # 复用 global_market.py 的市场情绪数据 (有5分钟缓存)
-            from app.routes.global_market import (
-                _fetch_vix, _fetch_dollar_index, _fetch_yield_curve,
-                _fetch_fear_greed_index,
-                _get_cached, _set_cached
+            from app.data_providers import get_cached as _get_cached, set_cached as _set_cached
+            from app.data_providers.sentiment import (
+                fetch_vix as _fetch_vix,
+                fetch_dollar_index as _fetch_dollar_index,
+                fetch_yield_curve as _fetch_yield_curve,
+                fetch_fear_greed_index as _fetch_fear_greed_index,
             )
             
             result = {}
@@ -1540,7 +1663,7 @@ class MarketDataCollector:
             'DOGE': 'Dogecoin',
             'AVAX': 'Avalanche',
             'DOT': 'Polkadot',
-            'MATIC': 'Polygon'
+            'POL': 'Polygon'
         }
         
         base_symbol = symbol.split('/')[0] if '/' in symbol else symbol

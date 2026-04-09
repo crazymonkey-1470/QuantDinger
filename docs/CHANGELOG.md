@@ -46,7 +46,7 @@ docker compose exec -T postgres psql -U quantdinger -d quantdinger -f /tmp/migra
 
 ## V3.0.1 (2026-04-05) — Frontend / docs
 
-- **前端版本**：`QuantDinger-Vue-src/package.json`、页脚展示与 `frontend/VERSION` 统一为 **3.0.1**。
+- **前端版本**：私有 Vue 仓库 `package.json`、页脚展示与 `frontend/VERSION` 统一为 **3.0.1**。
 - **文档**：根目录 `README.md` 与 `docs/README_CN.md` 补充 QuantDinger 专属交易所邀请注册链接表（与个人中心「开户」一致），版本徽章更新为 3.0.1。
 - **回测中心**：暗黑主题下图标与「添加标的」等弹窗样式对齐（`a-icon`、图表标题区、Modal 挂载层）。
 

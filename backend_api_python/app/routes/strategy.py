@@ -27,6 +27,52 @@ logger = get_logger(__name__)
 
 strategy_bp = Blueprint('strategy', __name__)
 
+# ---------------------------------------------------------------------------
+# Strategy templates (loaded once from JSON file)
+# ---------------------------------------------------------------------------
+import os as _os
+
+_TEMPLATES_PATH = _os.path.join(_os.path.dirname(__file__), '..', 'data', 'strategy_templates.json')
+_templates_cache = None
+
+
+def _load_templates():
+    global _templates_cache
+    if _templates_cache is None:
+        try:
+            with open(_TEMPLATES_PATH, 'r', encoding='utf-8') as f:
+                _templates_cache = json.load(f)
+        except Exception as e:
+            logger.error("Failed to load strategy templates: %s", e)
+            _templates_cache = []
+    return _templates_cache
+
+
+@strategy_bp.route('/templates', methods=['GET'])
+@login_required
+def list_strategy_templates():
+    """Return pre-built strategy templates for one-click import."""
+    templates = _load_templates()
+    category = request.args.get('category')
+    difficulty = request.args.get('difficulty')
+    if category:
+        templates = [t for t in templates if t.get('category') == category]
+    if difficulty:
+        templates = [t for t in templates if t.get('difficulty') == difficulty]
+    return jsonify({'code': 1, 'msg': 'success', 'data': templates})
+
+
+@strategy_bp.route('/templates/<key>', methods=['GET'])
+@login_required
+def get_strategy_template(key):
+    """Return a single strategy template by key."""
+    templates = _load_templates()
+    for t in templates:
+        if t.get('key') == key:
+            return jsonify({'code': 1, 'msg': 'success', 'data': t})
+    return jsonify({'code': 0, 'msg': 'Template not found'}), 404
+
+
 # Local mode: avoid heavy initialization during module import.
 # Instantiate services lazily on first use to keep startup clean.
 _strategy_service = None

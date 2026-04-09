@@ -25,6 +25,34 @@ except ImportError:
     logger.warning("bcrypt not installed. Using SHA256 for password hashing (less secure).")
 
 
+_DEFAULT_WATCHLIST = [
+    ("Crypto", "BTC/USDT", "Bitcoin"),
+    ("Crypto", "ETH/USDT", "Ethereum"),
+    ("Crypto", "SOL/USDT", "Solana"),
+    ("USStock", "AAPL", "Apple"),
+    ("USStock", "NVDA", "NVIDIA"),
+    ("USStock", "TSLA", "Tesla"),
+    ("USStock", "MSFT", "Microsoft"),
+]
+
+
+def _seed_default_watchlist(db, user_id: int):
+    """Insert a starter watchlist for brand-new users (FTUE)."""
+    cur = db.cursor()
+    for market, symbol, name in _DEFAULT_WATCHLIST:
+        cur.execute(
+            """
+            INSERT INTO qd_watchlist (user_id, market, symbol, name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, NOW(), NOW())
+            ON CONFLICT (user_id, market, symbol) DO NOTHING
+            """,
+            (user_id, market, symbol, name),
+        )
+    db.commit()
+    cur.close()
+    logger.info(f"Seeded {len(_DEFAULT_WATCHLIST)} default watchlist items for user {user_id}")
+
+
 class UserService:
     """User management service"""
     
@@ -331,6 +359,20 @@ class UserService:
                     cur.close()
                 
                 logger.info(f"Created user: {username} (id={user_id}, referred_by={referred_by})")
+
+                # Seed default watchlist + builtin indicator samples for new users (FTUE)
+                if user_id:
+                    try:
+                        _seed_default_watchlist(db, user_id)
+                    except Exception as seed_err:
+                        logger.warning(f"Default watchlist seed failed for user {user_id}: {seed_err}")
+                    try:
+                        from app.services.builtin_indicators import seed_builtin_indicators_for_new_user
+
+                        seed_builtin_indicators_for_new_user(db, user_id)
+                    except Exception as ind_err:
+                        logger.warning(f"Builtin indicators seed failed for user {user_id}: {ind_err}")
+
                 return user_id
         except Exception as e:
             logger.error(f"create_user failed: {e}")

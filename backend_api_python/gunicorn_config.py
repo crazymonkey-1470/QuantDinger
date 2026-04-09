@@ -1,37 +1,35 @@
-"""
-Gunicorn 配置文件（生产环境）
-"""
-import multiprocessing
+"""Gunicorn configuration for QuantDinger backend.
 
-# 服务器 socket
-bind = "0.0.0.0:5000"
-backlog = 2048
+Background workers (strategy restore, portfolio monitor, etc.) are started
+inside ``create_app()`` which is called once per worker.  We use gthread
+(threads in a single worker) by default to keep a familiar single-process
+model while still allowing concurrent I/O.  Increase ``workers`` for
+higher throughput — background tasks are idempotent and use DB locks to
+coordinate, so duplicate work is minimal.
+"""
+import os
 
-# Worker 进程
-workers = multiprocessing.cpu_count() * 2 + 1
-worker_class = "sync"
-worker_connections = 1000
-timeout = 600  # 10 minutes for long-running backtests
+bind = f"{os.getenv('PYTHON_API_HOST', '0.0.0.0')}:{os.getenv('PYTHON_API_PORT', '5000')}"
+
+# Default: 1 worker + 4 threads — same concurrency model as Flask dev server
+# but with better stability and connection handling.
+# Increase GUNICORN_WORKERS for multi-core throughput.
+workers = int(os.getenv("GUNICORN_WORKERS", 1))
+threads = int(os.getenv("GUNICORN_THREADS", 4))
+
+worker_class = "gthread"
+timeout = 120
+graceful_timeout = 30
 keepalive = 5
 
-# 日志
-accesslog = "logs/access.log"
-errorlog = "logs/error.log"
-loglevel = "info"
-access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
+# Do NOT preload — background threads in create_app() rely on being in
+# the actual worker process.  preload would start them in master then
+# lose them after fork.
+preload_app = False
 
-# 进程命名
-proc_name = "quantdinger_python_api"
+accesslog = "-"
+errorlog = "-"
+loglevel = os.getenv("GUNICORN_LOG_LEVEL", "info")
 
-# 服务器机制
-daemon = False
-pidfile = "logs/gunicorn.pid"
-umask = 0
-user = None
-group = None
-tmp_upload_dir = None
-
-# SSL（如果需要）
-# keyfile = None
-# certfile = None
-
+limit_request_line = 8190
+limit_request_fields = 100

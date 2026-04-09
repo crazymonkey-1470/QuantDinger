@@ -221,6 +221,22 @@ def save_indicator():
                 cur.execute("ALTER TABLE qd_indicator_codes ADD COLUMN IF NOT EXISTS vip_free BOOLEAN DEFAULT FALSE")
             except Exception:
                 pass
+            # 市场购买的副本不可改库中源码：应「另存为」新建 is_buy=0 的指标再编辑
+            if indicator_id and indicator_id > 0:
+                cur.execute(
+                    "SELECT is_buy FROM qd_indicator_codes WHERE id = ? AND user_id = ?",
+                    (indicator_id, user_id),
+                )
+                _existing_buy = cur.fetchone()
+                if _existing_buy and int(_existing_buy.get("is_buy") or 0) == 1:
+                    cur.close()
+                    return jsonify(
+                        {
+                            "code": 0,
+                            "msg": "indicator_purchased_readonly",
+                            "data": None,
+                        }
+                    ), 403
             if indicator_id and indicator_id > 0:
                 # 检查是否从未发布改为发布，需要设置审核状态
                 if publish_to_community:
@@ -550,53 +566,103 @@ def ai_generate():
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    # System prompt copied/adapted from the legacy PHP implementation.
+    # QuantDinger indicator IDE: chart render + backtest; must pass server verifyCode + safe_exec rules.
     SYSTEM_PROMPT = """# Role
 
-You are an expert Python quantitative trading developer. Your task is to write custom indicator or strategy scripts for a professional K-line chart component running in a browser (Pyodide environment).
+You write production-ready **QuantDinger** indicator scripts: Python that runs in the Indicator IDE, renders on the K-line chart, and drives **backtest entries/exits** via boolean signals. Code must be syntactically valid, safe for the host sandbox, and match the exact I/O contract below.
 
-# Context & Environment
+# Runtime (strict)
 
-1. **Runtime Environment**: Code runs in a browser sandbox, **network access is prohibited** (cannot use `pip` or `requests`).
+- Environment: browser-side Pyodide–style sandbox **or** API verify sandbox: **no network**, no file I/O, no subprocess.
+- **`pd` and `np` are already available.** Do **not** write `import pandas` / `import numpy`. Avoid any `import` unless unavoidable; never import `os`, `sys`, `requests`, `socket`, `subprocess`, `threading`, `sqlite3`, `multiprocessing`, or other I/O/network modules.
+- Do **not** use: `eval`, `exec`, `compile`, `open`, `__import__`, `getattr`/`setattr`/`delattr` on untrusted names, `globals`, `vars`, `dir`, or meta-programming to escape the sandbox. `locals()` is allowed if needed to assemble `output` (backtest/verify allow it); avoid `globals()`.
+- Work **vectorized** with pandas on `df` where possible; avoid O(n) Python loops over every row for core series (rolling/ewm/shift are preferred).
 
-2. **Pre-installed Libraries**: The system has already imported `pandas as pd` and `numpy as np`. **DO NOT** include `import pandas as pd` or `import numpy as np` in your generated code. Use `pd` and `np` directly.
+# Input: `df`
 
-3. **Input Data**: The system provides a variable `df` (Pandas DataFrame) with index from 0 to N.
-   - Columns include: `df['time']` (timestamp), `df['open']`, `df['high']`, `df['low']`, `df['close']`, `df['volume']`.
+- `df` is a pandas `DataFrame` aligned to K-line bars (one row per bar).
+- You **must** start mutating with: `df = df.copy()`
+- Expected columns (use `.get` or try/except only if you document optional columns): `open`, `high`, `low`, `close`, `volume`. A `time` column may exist; do not assume dtypes beyond numeric OHLCV.
+- Do not rename or drop required columns in a way that breaks length alignment.
 
-# Output Requirement (Strict)
+# Required globals (strict)
 
-At the end of code execution, you **MUST** define a dictionary variable named `output`. The system only reads this variable to render the chart.
+1. `my_indicator_name = "..."`  — short display name (can match `output['name']`).
+2. `my_indicator_description = "..."` — one line describing logic and parameters.
 
-Additionally, you MUST define:
-- my_indicator_name = "..."
-- my_indicator_description = "..."
+# Backtest contract (strict)
 
-`output` MUST follow this shape:
-output = {
-  "name": my_indicator_name,
-  "plots": [ { "name": str, "data": list, "color": "#RRGGBB", "overlay": bool, "type": "line" (optional) } ],
-  "signals": [ { "type": "buy"|"sell", "text": str, "data": list, "color": "#RRGGBB" } ] (optional),
-  "calculatedVars": {} (optional)
-}
-Where `data` lists MUST have the same length as `df` and use `None` for "no value".
+The backtest engine reads **boolean** columns on `df`:
 
-Backtest/execution compatibility (recommended):
-- Also set df['buy'] and df['sell'] as boolean columns (same length as df).
+- `df['buy']` — True on bars where a **new** long entry signal is allowed (edge-triggered).
+- `df['sell']` — True on bars where a **new** exit / short entry signal is allowed (per product semantics).
 
-# Signal confirmation / execution timing (IMPORTANT)
-- Signals are generally confirmed on bar close. The backtest engine may execute them on the next bar open to better match live trading and avoid look-ahead bias.
+Rules:
 
-# Robustness requirements (IMPORTANT)
-- Always handle NaN/inf and division-by-zero (common in RSI/BB/RSV calculations).
-- Avoid overly restrictive entry/exit logic that results in zero buy or zero sell signals.
-  For multi-indicator strategies, do NOT require a crossover AND extreme RSI on the same bar unless explicitly requested.
-- Prefer edge-triggered signals (one-shot) to avoid repeated consecutive signals:
-  buy = raw_buy.fillna(False) & (~raw_buy.shift(1).fillna(False))
-  sell = raw_sell.fillna(False) & (~raw_sell.shift(1).fillna(False))
-- If your final conditions produce no buys or no sells in the visible range, relax logically (e.g., remove one filter or widen thresholds).
+- Same **index and length** as `df`; dtype boolean (use `.astype(bool)` after fillna).
+- **Edge-trigger (mandatory)** unless the user explicitly asks for repeated signals on consecutive bars:
+  - `raw_buy = (...condition...)`
+  - `buy = raw_buy.fillna(False) & (~raw_buy.shift(1).fillna(False))`
+  - Same pattern for `raw_sell` / `sell`.
+- Signals represent **confirmation on bar close**; the engine fills on the **next bar open** (live-like). Do not implement intrabar lookahead (e.g. do not use the same bar’s `high` to validate a signal that assumes you bought at that bar’s `open` unless the user clearly wants that research mode).
+- Fill NaN from indicators before comparisons; replace division-by-zero (`replace(0, np.nan)` then fill).
 
-IMPORTANT: Output Python code directly, without explanations, without descriptions, start directly with code, and do NOT use markdown code blocks like ```python.
+# Chart output: `output` dict (strict)
+
+After computation, set:
+
+`output = { 'name': ..., 'plots': [...], 'signals': [...] }`  (use the same string keys as below)
+
+- **`name`**: str, usually `my_indicator_name`.
+- **`plots`**: list of dicts, each with:
+  - `name` (str), `data` (list, length **exactly** `len(df)`), `color` (`#RRGGBB`), `overlay` (bool).
+  - `type`: optional, e.g. `'line'`.
+  - Price-scale series (MA, Bollinger on price): `overlay: True`. Oscillators (RSI 0–100): `overlay: False`.
+- **`signals`**: optional list for markers; each item:
+  - `type`: `'buy'` or `'sell'`, `text` (short label), `color`, `data`: list length **`len(df)`**, value `None` or a float price for marker Y.
+- **`calculatedVars`**: optional dict for future UI; may be `{}` or omitted.
+
+**Length rule:** every `plot['data']` and every `signal['data']` list must have the **same length as `df`** (same as number of rows).
+
+# Optional tunable parameters: `# @param`
+
+If the indicator has knobs (periods, thresholds), declare them **once per line** at the top (after name/description or with `@strategy`):
+
+`# @param <name> <int|float|bool|str> <default> <short description>`
+
+Example: `# @param rsi_len int 14 RSI period`
+
+The runtime merges these with user-supplied params.
+
+# Strategy defaults: `# @strategy` (recommended)
+
+Place **after** name/description lines, **one key per line**, no extra prose on the same line:
+
+`# @strategy <key> <value>`
+
+Supported keys (parser-enforced):
+
+- `stopLossPct`, `takeProfitPct`: float **0–1** (e.g. `0.03` = 3% on margin PnL semantics as used by the engine).
+- `entryPct`: float **0.01–1.0** (fraction of capital).
+- `trailingEnabled`: `true` or `false`.
+- `trailingStopPct`, `trailingActivationPct`: float **0–1**.
+- `tradeDirection`: exactly `long`, `short`, or `both`.
+
+**Do not** put `leverage` in `@strategy`; users set leverage in the IDE backtest panel.
+
+**Do not** emit `signalTiming`; the product fixes fills to next bar open.
+
+Pick defaults that match the strategy style (trend vs mean-reversion).
+
+# Quality bar
+
+- Prefer clear variable names, short comments only where non-obvious.
+- Ensure at least some `buy` and some `sell` True in typical ranges unless the user asked for a rare signal; if logic is too strict, widen thresholds.
+- If the user asks for “display only” with no trading, still set `df['buy']`/`df['sell']` to all-False and provide plots.
+
+# Output format for this chat turn
+
+Return **only** valid Python source: **no** markdown fences, **no** ` ``` `, **no** explanation before or after the code. First non-empty line should be `my_indicator_name` or a comment block with `@strategy`/`@param` immediately followed by `my_indicator_name`.
 """
 
     def _template_code() -> str:
@@ -666,11 +732,12 @@ IMPORTANT: Output Python code directly, without explanations, without descriptio
         user_prompt = prompt
         if existing:
             user_prompt = (
-                "# Existing Code (modify based on this):\n\n```python\n"
+                "# Existing QuantDinger indicator code (keep working output/buy/sell contract):\n\n```python\n"
                 + existing.strip()
-                + "\n```\n\n# Modification Requirements:\n\n"
+                + "\n```\n\n# Change request:\n\n"
                 + prompt
-                + "\n\nPlease generate complete new Python code based on the existing code above and my modification requirements. Output the complete Python code directly, without explanations, without segmentation."
+                + "\n\nReturn one full replacement script: same QuantDinger rules (my_indicator_name/description, df = df.copy(), df['buy']/df['sell'], output dict, list lengths == len(df)). "
+                "Python only — no markdown, no prose outside the code."
             )
 
         temperature = float(os.getenv("OPENROUTER_TEMPERATURE", "0.7") or 0.7)
@@ -734,6 +801,46 @@ IMPORTANT: Output Python code directly, without explanations, without descriptio
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@indicator_bp.route("/codeQualityHints", methods=["POST"])
+@login_required
+def code_quality_hints():
+    """
+    Heuristic hints for indicator code (structure, @strategy risk/position).
+    POST /api/indicator/codeQualityHints
+    Body: { "code": "..." }
+    Returns: { "code": 1, "data": { "hints": [ { "severity", "code", "params" } ] } }
+    """
+    from app.services.indicator_code_quality import analyze_indicator_code_quality
+
+    data = request.get_json() or {}
+    code_str = data.get("code") or ""
+    hints = analyze_indicator_code_quality(code_str)
+    return jsonify({"code": 1, "data": {"hints": hints}})
+
+
+@indicator_bp.route("/parseStrategyConfig", methods=["POST"])
+@login_required
+def parse_strategy_config():
+    """
+    Parse @strategy annotations from indicator code and return strategy config.
+    POST /api/indicator/parseStrategyConfig
+    Body: { "code": "..." }
+    Returns: { "code": 1, "data": { "strategyConfig": {...}, "indicatorParams": [...] } }
+    """
+    from app.services.indicator_params import StrategyConfigParser, IndicatorParamsParser
+    data = request.get_json() or {}
+    code_str = (data.get("code") or "").strip()
+    strategy_cfg = StrategyConfigParser.parse(code_str) if code_str else {}
+    indicator_params = IndicatorParamsParser.parse_params(code_str) if code_str else []
+    return jsonify({
+        "code": 1,
+        "data": {
+            "strategyConfig": strategy_cfg,
+            "indicatorParams": indicator_params
+        }
+    })
 
 
 @indicator_bp.route("/callIndicator", methods=["POST"])

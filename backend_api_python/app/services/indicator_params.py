@@ -23,6 +23,99 @@ from app.utils.db import get_db_connection
 logger = get_logger(__name__)
 
 
+class StrategyConfigParser:
+    """
+    解析指标代码中的 @strategy 注解，提取策略配置（止盈止损、仓位等）。
+
+    支持的注解格式:
+        # @strategy stopLossPct 0.02 止损比例
+        # @strategy takeProfitPct 0.05 止盈比例
+        # @strategy entryPct 0.5 仓位比例 (0-1)
+        # 杠杆倍数由指标 IDE 回测面板单独设置，不再使用 @strategy leverage
+        # @strategy trailingEnabled true 启用追踪止损
+        # @strategy trailingStopPct 0.02 追踪止损比例
+        # @strategy trailingActivationPct 0.03 追踪激活比例
+        # @strategy tradeDirection long 交易方向
+    """
+
+    # 允许 key 与数值之间使用可选冒号，与指标 IDE 前端解析一致
+    STRATEGY_PATTERN = re.compile(
+        r'#\s*@strategy\s+(\w+)\s*:?\s*(\S+)\s*(.*)',
+        re.IGNORECASE
+    )
+
+    VALID_KEYS = {
+        'stopLossPct':          {'type': 'float', 'min': 0, 'max': 1},
+        'takeProfitPct':        {'type': 'float', 'min': 0, 'max': 5},
+        'entryPct':             {'type': 'float', 'min': 0.01, 'max': 1},
+        'trailingEnabled':      {'type': 'bool'},
+        'trailingStopPct':      {'type': 'float', 'min': 0, 'max': 1},
+        'trailingActivationPct':{'type': 'float', 'min': 0, 'max': 1},
+        'tradeDirection':       {'type': 'str',   'enum': ['long', 'short', 'both']},
+    }
+
+    @classmethod
+    def parse(cls, code: str) -> Dict[str, Any]:
+        """
+        解析代码中的 @strategy 注解，返回策略配置字典。
+        只包含代码中声明的键，未声明的不包含。
+        """
+        config: Dict[str, Any] = {}
+        if not code:
+            return config
+        for line in code.split('\n'):
+            line = line.strip()
+            m = cls.STRATEGY_PATTERN.match(line)
+            if not m:
+                continue
+            key = m.group(1)
+            raw_val = m.group(2)
+            if key not in cls.VALID_KEYS:
+                continue
+            spec = cls.VALID_KEYS[key]
+            val = cls._convert(raw_val, spec)
+            if val is not None:
+                config[key] = val
+        return config
+
+    @classmethod
+    def _convert(cls, raw: str, spec: Dict) -> Any:
+        t = spec['type']
+        try:
+            if t == 'float':
+                v = float(raw)
+                v = max(spec.get('min', v), min(spec.get('max', v), v))
+                return round(v, 6)
+            elif t == 'int':
+                v = int(raw)
+                v = max(spec.get('min', v), min(spec.get('max', v), v))
+                return v
+            elif t == 'bool':
+                return raw.lower() in ('true', '1', 'yes', 'on')
+            elif t == 'str':
+                if 'enum' in spec and raw not in spec['enum']:
+                    return spec['enum'][0]
+                return raw
+        except (ValueError, TypeError):
+            return None
+        return None
+
+    @classmethod
+    def generate_annotations(cls, config: Dict[str, Any]) -> str:
+        """
+        从策略配置字典生成 @strategy 注解行。
+        用于AI生成代码时自动附加。
+        """
+        lines = []
+        for key, spec in cls.VALID_KEYS.items():
+            if key in config:
+                val = config[key]
+                if spec['type'] == 'bool':
+                    val = 'true' if val else 'false'
+                lines.append(f'# @strategy {key} {val}')
+        return '\n'.join(lines)
+
+
 class IndicatorParamsParser:
     """解析指标代码中的参数声明"""
     

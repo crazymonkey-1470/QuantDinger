@@ -276,6 +276,9 @@ def analyze():
             'msg': 'success',
             'data': {
                 **(result or {}),
+                'market': market,
+                'symbol': symbol,
+                'timeframe': timeframe,
                 'credits_charged': credits_charged,
                 'remaining_credits': remaining_credits,
             }

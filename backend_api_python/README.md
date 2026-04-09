@@ -193,10 +193,10 @@ Uses **FastAnalysisService** (single LLM call, multi-factor):
 
 ## Frontend integration
 
-For Vue dev server:
-- Frontend: `http://localhost:8000`
+For local Vue dev (private frontend repo):
+- Frontend dev server URL depends on your `vue.config.js` / Vite config
 - Backend: `http://localhost:5000`
-- Proxy config: `quantdinger_vue/vue.config.js`
+- Point devServer proxy at the backend URL above
 
 ## Production (Gunicorn)
 

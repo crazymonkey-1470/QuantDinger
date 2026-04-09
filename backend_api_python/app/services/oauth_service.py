@@ -438,6 +438,20 @@ class OAuthService:
                 db.commit()
                 cur.close()
 
+                if user_id is None:
+                    cur = db.cursor()
+                    cur.execute("SELECT id FROM qd_users WHERE username = ?", (username,))
+                    row = cur.fetchone()
+                    user_id = int(row["id"]) if row and row.get("id") is not None else None
+                    cur.close()
+
+                try:
+                    from app.services.builtin_indicators import seed_builtin_indicators_for_new_user
+
+                    seed_builtin_indicators_for_new_user(db, user_id)
+                except Exception as ind_err:
+                    logger.warning(f"Builtin indicators seed failed for OAuth user {user_id}: {ind_err}")
+
                 # Grant registration bonus credits for OAuth-created users
                 # Keep consistent with email/password registration flows (auth.py).
                 try:

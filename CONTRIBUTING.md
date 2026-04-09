@@ -100,7 +100,7 @@ If you plan a large change, please open a discussion first.
 This repository contains:
 
 - `backend_api_python/`: Flask backend + strategy runtime
-- `quantdinger_vue/`: Vue frontend
+- `frontend/dist/`: pre-built web UI assets (Vue source is maintained in a separate private repo)
 
 ### Backend (Python)
 
@@ -111,13 +111,9 @@ cp env.example .env   # Windows: copy env.example .env
 python run.py
 ```
 
-### Frontend (Vue)
+### Frontend
 
-```bash
-cd quantdinger_vue
-npm install
-npm run serve
-```
+To update the SPA, build in the private Vue repository and sync `dist/` into `frontend/dist/` (see `DEVELOPMENT.md`). Pull requests that only refresh static assets should describe what changed in the private UI repo when possible.
 
 ---
 

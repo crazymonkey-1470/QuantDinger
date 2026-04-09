@@ -119,7 +119,7 @@ class KlineService:
                 result = {
                     'price': ticker.get('last', 0),
                     'change': ticker.get('change', 0),
-                    'changePercent': ticker.get('changePercent', 0),
+                    'changePercent': ticker.get('changePercent') or ticker.get('percentage', 0),
                     'high': ticker.get('high', 0),
                     'low': ticker.get('low', 0),
                     'open': ticker.get('open', 0),
