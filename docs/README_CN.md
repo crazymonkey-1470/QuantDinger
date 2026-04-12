@@ -74,6 +74,24 @@ QuantDinger 真正想提供的，不只是一个“量化工具”，而是：
 - **小团队和工作室**：需要搭建私有研究平台或内部交易工具。
 - **运营方和创业团队**：需要一个可部署、带用户体系和计费能力的量化产品底座。
 
+## 视觉导览
+
+<table align="center" width="100%">
+  <tr>
+    <td colspan="2" align="center">
+      <a href="https://youtu.be/HPTVpqL7knM"><img src="screenshots/video_demo.png" alt="Video Demo" width="80%" style="border-radius: 8px;"></a>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="screenshots/v31.png" alt="Indicator IDE" style="border-radius: 6px;"><br/><sub>指标 IDE、图表研究、回测与快速交易</sub></td>
+    <td width="50%" align="center"><img src="screenshots/v32.png" alt="AI Asset Analysis" style="border-radius: 6px;"><br/><sub>AI 资产分析与机会雷达</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/v33.png" alt="Trading Bots" style="border-radius: 6px;"><br/><sub>交易机器人工作台与自动化模板</sub></td>
+    <td align="center"><img src="screenshots/v34.png" alt="Strategy Live" style="border-radius: 6px;"><br/><sub>策略实盘运营、绩效与监控</sub></td>
+  </tr>
+</table>
+
 ## 用 QuantDinger 可以做什么
 
 ### AI 研究与决策支持
@@ -177,24 +195,6 @@ QuantDinger 不是简单地“在交易软件里加了个 LLM 聊天框”，而
 - **对量化开发者**：它把 Python 和策略控制权放在核心位置。
 - **对运营方**：它补上了很多开源交易项目缺失的用户、计费、角色和部署能力。
 - **对 AI 工作流**：它让分析结果变得可执行、可复盘、可逐步自动化。
-
-## 视觉导览
-
-<table align="center" width="100%">
-  <tr>
-    <td colspan="2" align="center">
-      <a href="https://youtu.be/HPTVpqL7knM"><img src="screenshots/video_demo.png" alt="Video Demo" width="80%" style="border-radius: 8px;"></a>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><img src="screenshots/v31.png" alt="Indicator IDE" style="border-radius: 6px;"><br/><sub>指标 IDE、图表研究、回测与快速交易</sub></td>
-    <td width="50%" align="center"><img src="screenshots/v32.png" alt="AI Asset Analysis" style="border-radius: 6px;"><br/><sub>AI 资产分析与机会雷达</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="screenshots/v33.png" alt="Trading Bots" style="border-radius: 6px;"><br/><sub>交易机器人工作台与自动化模板</sub></td>
-    <td align="center"><img src="screenshots/v34.png" alt="Strategy Live" style="border-radius: 6px;"><br/><sub>策略实盘运营、绩效与监控</sub></td>
-  </tr>
-</table>
 
 ## 它是怎么工作的
 

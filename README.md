@@ -74,6 +74,24 @@ QuantDinger gives you something most trading tools do not:
 - **Small teams and studios** building internal trading tools or private research platforms.
 - **Operators and founders** who need a deployable product with user management, billing, and admin controls.
 
+## Visual Tour
+
+<table align="center" width="100%">
+  <tr>
+    <td colspan="2" align="center">
+      <a href="https://youtu.be/HPTVpqL7knM"><img src="docs/screenshots/video_demo.png" alt="Video Demo" width="80%" style="border-radius: 8px;"></a>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/v31.png" alt="Indicator IDE" style="border-radius: 6px;"><br/><sub>Indicator IDE, charting, backtest, and quick trade</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/v32.png" alt="AI Asset Analysis" style="border-radius: 6px;"><br/><sub>AI asset analysis and opportunity radar</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/v33.png" alt="Trading Bots" style="border-radius: 6px;"><br/><sub>Trading bot workspace and automation templates</sub></td>
+    <td align="center"><img src="docs/screenshots/v34.png" alt="Strategy Live" style="border-radius: 6px;"><br/><sub>Strategy live operations, performance, and monitoring</sub></td>
+  </tr>
+</table>
+
 ## What You Can Do With QuantDinger
 
 ### AI Research and Decision Support
@@ -177,24 +195,6 @@ That combination is the core difference.
 - **For quants**: it keeps Python and strategy control front and center.
 - **For operators**: it adds the parts most open-source trading projects skip, including users, billing, roles, and deployability.
 - **For AI-first workflows**: it turns analysis into something actionable, reviewable, and eventually automatable.
-
-## Visual Tour
-
-<table align="center" width="100%">
-  <tr>
-    <td colspan="2" align="center">
-      <a href="https://youtu.be/HPTVpqL7knM"><img src="docs/screenshots/video_demo.png" alt="Video Demo" width="80%" style="border-radius: 8px;"></a>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><img src="docs/screenshots/v31.png" alt="Indicator IDE" style="border-radius: 6px;"><br/><sub>Indicator IDE, charting, backtest, and quick trade</sub></td>
-    <td width="50%" align="center"><img src="docs/screenshots/v32.png" alt="AI Asset Analysis" style="border-radius: 6px;"><br/><sub>AI asset analysis and opportunity radar</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/v33.png" alt="Trading Bots" style="border-radius: 6px;"><br/><sub>Trading bot workspace and automation templates</sub></td>
-    <td align="center"><img src="docs/screenshots/v34.png" alt="Strategy Live" style="border-radius: 6px;"><br/><sub>Strategy live operations, performance, and monitoring</sub></td>
-  </tr>
-</table>
 
 ## How It Works
 
