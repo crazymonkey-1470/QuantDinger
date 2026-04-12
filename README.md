@@ -4,8 +4,9 @@
   </a>
 
   <h1>QuantDinger</h1>
-  <h3>Self-Hosted AI-Native Quant Research, Strategy, Backtesting, and Trading Platform</h3>
-  <p><strong>Build, test, and run trading workflows with AI analysis, Python strategies, live execution, and operations on your own infrastructure.</strong></p>
+  <h3>Your Private AI Quant Operating System</h3>
+  <p><strong>Research markets, generate Python strategies, backtest ideas, and run live trading workflows on infrastructure you control.</strong></p>
+  <p><em>Self-hosted AI trading platform for quant research, backtesting, execution, and operator-ready growth.</em></p>
 
   <p>
     <a href="README.md"><strong>English</strong></a> &nbsp;·&nbsp;
@@ -47,6 +48,24 @@ If you are searching for an **open source quant platform**, **AI trading researc
 - **Python-native and AI-assisted**: write indicators and strategies directly in Python, or use AI to accelerate drafting and iteration.
 - **Built for operators, not just demos**: Docker Compose, PostgreSQL, Redis, Nginx, health checks, worker toggles, and environment-based configuration.
 - **Commercialization-ready**: memberships, credits, admin management, and USDT payment flows are already part of the stack.
+
+## The Core Promise
+
+QuantDinger gives you something most trading tools do not:
+
+- **one stack instead of five** for research, strategy code, backtests, execution, alerts, and operations
+- **AI that sits inside the workflow**, not beside it
+- **Python flexibility without losing product UX**
+- **private deployment without giving up growth features**
+
+## QuantDinger vs Patchwork Setups
+
+| Typical Setup | QuantDinger |
+|---------------|-------------|
+| AI chat tool disconnected from real strategy workflows | AI analysis, AI code generation, backtest feedback, and execution workflows live in one product |
+| Separate charting app, Python scripts, bot runner, and notification stack | One deployable platform for charting, strategy logic, runtime services, and alerts |
+| Hosted SaaS with limited control over credentials and alpha | Self-hosted architecture with your own infra, keys, and operational data |
+| Research tools with no operator layer | Multi-user roles, billing, credits, admin controls, and deployment-ready configuration |
 
 ## Who It Is For
 
@@ -151,6 +170,13 @@ Most trading stacks give you one or two of these pieces. QuantDinger aims to giv
 7. **Commercialization primitives**
 
 That combination is the core difference.
+
+## Why It Converts Better Than a Typical Trading Tool
+
+- **For traders**: it shortens the path from idea to execution.
+- **For quants**: it keeps Python and strategy control front and center.
+- **For operators**: it adds the parts most open-source trading projects skip, including users, billing, roles, and deployability.
+- **For AI-first workflows**: it turns analysis into something actionable, reviewable, and eventually automatable.
 
 ## Visual Tour
 
@@ -440,6 +466,28 @@ Use `backend_api_python/env.example` as the primary template. Key areas include:
 | Email | [Setup](docs/NOTIFICATION_EMAIL_CONFIG_EN.md) | [Config](docs/NOTIFICATION_EMAIL_CONFIG_CH.md) |
 | SMS | [Setup](docs/NOTIFICATION_SMS_CONFIG_EN.md) | [Config](docs/NOTIFICATION_SMS_CONFIG_CH.md) |
 
+## FAQ
+
+### Is QuantDinger really self-hosted?
+
+Yes. The default deployment model is your own Docker Compose stack with your own database, Redis instance, credentials, and environment configuration.
+
+### Is QuantDinger only for crypto trading?
+
+No. Crypto is a major focus, but the platform also includes IBKR workflows for US stocks, MT5 workflows for forex, and Polymarket research support.
+
+### Can I write strategies directly in Python?
+
+Yes. QuantDinger supports both dataframe-style `IndicatorStrategy` development and event-driven `ScriptStrategy` development. You can also use AI to generate a starting point and then edit it yourself.
+
+### Is this a research tool or a live trading platform?
+
+It is both. QuantDinger is built to connect AI research, charting, strategy development, backtesting, quick trade flows, and live execution operations in one system.
+
+### Can I use QuantDinger commercially?
+
+The backend is licensed under Apache 2.0. The frontend source has a separate source-available license. Commercial use is supported, but you should review the licensing terms in this repository and contact the project for frontend/commercial authorization if needed.
+
 ## Open Source Repositories
 
 | Repository | Purpose |
@@ -482,6 +530,14 @@ For commercial licensing, frontend source access, branding authorization, or dep
 - Users are solely responsible for determining whether their use of the software is lawful in their country or region, and for obtaining any approvals, registrations, disclosures, or professional advice required by applicable law.
 - QuantDinger, its copyright holders, contributors, licensors, maintainers, and affiliated open-source participants do not provide legal, tax, investment, compliance, or regulatory advice.
 - To the maximum extent permitted by applicable law, QuantDinger and all related contributors and rights holders disclaim responsibility and liability for any unlawful use, regulatory breach, trading loss, service interruption, enforcement action, or other consequence arising from the use or misuse of the software.
+
+## Start Here
+
+- **Want to see the product first?** Open the [Live Demo](https://ai.quantdinger.com) or watch the [Video Demo](https://youtu.be/HPTVpqL7knM).
+- **Want to self-host quickly?** Go straight to [Quick Start](#quick-start) and launch with Docker Compose.
+- **Want to build strategies?** Read the [Strategy Development Guide](docs/STRATEGY_DEV_GUIDE.md).
+- **Want cloud or production deployment?** Use the [Cloud Deployment Guide](docs/CLOUD_DEPLOYMENT_EN.md).
+- **Want to license or customize it for a business?** Contact the team through [quantdinger.com](https://quantdinger.com).
 
 ## Community and Support
 
