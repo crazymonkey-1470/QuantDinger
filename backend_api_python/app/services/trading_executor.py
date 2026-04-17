@@ -1873,17 +1873,33 @@ class TradingExecutor:
 
     def _is_server_side_exit_enabled(self, trading_config: Optional[Dict[str, Any]], config_key: str) -> bool:
         """
-        Bot strategies manage exits in their own scripts, so server-side exits default to off for them.
-        Non-bot strategies keep the historical default of on unless explicitly disabled.
+        Determine if a server-side exit (SL/TP) should be active.
+
+        For non-bot strategies: enabled by default (historical behavior).
+        For bot strategies: enabled only when the corresponding pct value > 0,
+        since the user explicitly configured it in the risk form.
+        Martingale TP is handled in-script (take_profit_pct should be 0).
         """
         tc = trading_config if isinstance(trading_config, dict) else {}
         bot_type = str(tc.get('bot_type') or '').strip().lower()
-        default_enabled = not bool(bot_type)
 
-        enabled = tc.get(config_key, default_enabled)
-        if isinstance(enabled, str):
-            return enabled.strip().lower() not in ['0', 'false', 'no', 'off']
-        return bool(enabled)
+        if config_key in tc:
+            v = tc[config_key]
+            if isinstance(v, str):
+                return v.strip().lower() not in ['0', 'false', 'no', 'off']
+            return bool(v)
+
+        if not bot_type:
+            return True
+
+        if config_key == 'enable_server_side_stop_loss':
+            pct = float(tc.get('stop_loss_pct') or 0)
+            return pct > 0
+        if config_key == 'enable_server_side_take_profit':
+            pct = float(tc.get('take_profit_pct') or 0)
+            return pct > 0
+
+        return False
     
     def _klines_to_dataframe(self, klines: List[Dict[str, Any]]) -> pd.DataFrame:
         """将K线数据转换为DataFrame"""
@@ -2453,6 +2469,30 @@ class TradingExecutor:
                         f"AI filter blocked entry: {sig} {symbol}, decision={ai_decision}, reason={reason}",
                     )
                     return False
+
+            # 1.2 Max position limit (risk control)
+            if sig in ("open_long", "open_short", "add_long", "add_short"):
+                max_pos = float((trading_config or {}).get('max_position') or 0)
+                if max_pos > 0:
+                    cur_pos_value = self._current_position_value(current_positions, current_price)
+                    if cur_pos_value >= max_pos:
+                        append_strategy_log(
+                            strategy_id, "info",
+                            f"Risk: max_position reached ({cur_pos_value:.2f} >= {max_pos:.2f}), blocking {sig}",
+                        )
+                        return False
+
+            # 1.3 Max daily loss limit (risk control)
+            if sig in ("open_long", "open_short", "add_long", "add_short"):
+                max_daily = float((trading_config or {}).get('max_daily_loss') or 0)
+                if max_daily > 0:
+                    daily_pnl = self._get_daily_pnl(strategy_id)
+                    if daily_pnl < 0 and abs(daily_pnl) >= max_daily:
+                        append_strategy_log(
+                            strategy_id, "info",
+                            f"Risk: max_daily_loss reached (loss={abs(daily_pnl):.2f} >= {max_daily:.2f}), blocking {sig}",
+                        )
+                        return False
 
             # 2. 计算下单数量
             available_capital = self._get_available_capital(
@@ -3238,6 +3278,44 @@ class TradingExecutor:
 
         equity = float(initial_capital or 0.0) + realized_pnl + unrealized_pnl
         return max(0.0, equity)
+
+    def _current_position_value(
+        self,
+        current_positions: Optional[List[Dict[str, Any]]],
+        current_price: Optional[float],
+    ) -> float:
+        """Calculate total USDT notional of all open positions."""
+        total = 0.0
+        for pos in (current_positions or []):
+            try:
+                size = float(pos.get("size") or 0)
+                entry = float(pos.get("entry_price") or 0)
+                mark = float(current_price or entry or 0)
+                if size > 0 and mark > 0:
+                    total += size * mark
+            except Exception:
+                continue
+        return total
+
+    def _get_daily_pnl(self, strategy_id: int) -> float:
+        """Get today's realized PnL (profit minus fees) for the strategy."""
+        try:
+            with get_db_connection() as db:
+                cursor = db.cursor()
+                cursor.execute(
+                    """
+                    SELECT COALESCE(SUM(COALESCE(profit, 0) - COALESCE(commission, 0)), 0) AS daily_pnl
+                    FROM qd_strategy_trades
+                    WHERE strategy_id = %s AND DATE(created_at) = CURDATE()
+                    """,
+                    (strategy_id,),
+                )
+                row = cursor.fetchone() or {}
+                cursor.close()
+                return float(row.get("daily_pnl") or 0.0)
+        except Exception as e:
+            logger.warning(f"Failed to get daily pnl for strategy {strategy_id}: {e}")
+            return 0.0
 
     def _record_trade(self, strategy_id: int, symbol: str, type: str, price: float, amount: float, value: float, profit: float = None, commission: float = None):
         """记录交易到数据库"""

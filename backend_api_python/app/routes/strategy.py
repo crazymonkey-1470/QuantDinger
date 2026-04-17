@@ -1614,10 +1614,10 @@ def ai_generate_strategy():
                 "You are an expert quantitative trading advisor. The user wants to create an automated trading bot.\n"
                 "Based on their description AND the real-time market data provided, recommend one of the four bot types and provide optimal parameters.\n\n"
                 "Available bot types and their parameter schemas:\n"
-                "1. grid - Grid Trading: {upperPrice: number, lowerPrice: number, gridCount: int(5-100), amountPerGrid: number, gridMode: 'arithmetic'|'geometric'}\n"
-                "2. martingale - Martingale: {initialAmount: number, multiplier: number(1.1-3.0), maxLayers: int(2-10), priceDropPct: number(1-20), takeProfitPct: number(1-50)}\n"
+                "1. grid - Grid Trading: {upperPrice: number, lowerPrice: number, gridCount: int(5-100), gridMode: 'arithmetic'|'geometric'}\n"
+                "2. martingale - Martingale: {multiplier: number(1.1-3.0), maxLayers: int(2-10), priceDropPct: number(1-20)}\n"
                 "3. trend - Trend Following: {maPeriod: int(5-200), maType: 'SMA'|'EMA', confirmBars: int(1-5), positionPct: number(10-100), direction: 'long'|'short'|'both'}\n"
-                "4. dca - DCA (Dollar-Cost Averaging): {amountEach: number, frequency: 'every_bar'|'hourly'|'4h'|'daily'|'weekly'|'biweekly'|'monthly', totalBudget: number, dipBuyEnabled: bool, dipThreshold: number(1-30)}\n\n"
+                "4. dca - DCA (Dollar-Cost Averaging): {amountEach: number, frequency: 'every_bar'|'hourly'|'4h'|'daily'|'weekly'|'biweekly'|'monthly', dipBuyEnabled: bool, dipThreshold: number(1-30)}\n\n"
                 "Also suggest base config:\n"
                 "- symbol: string (e.g. 'BTC/USDT')\n"
                 "- timeframe: '1m'|'5m'|'15m'|'1h'|'4h'|'1d'\n"
@@ -1631,6 +1631,7 @@ def ai_generate_strategy():
                 "CRITICAL: If real-time market data is provided, you MUST use it to set realistic and accurate parameters.\n"
                 "For example, for grid trading, the upperPrice and lowerPrice MUST be derived from the actual price range in the market data.\n"
                 "IMPORTANT: Do NOT set initialCapital in baseConfig - leave it as 0 or omit it. The user will enter their own investment amount.\n"
+                "IMPORTANT: Keep strategyParams focused on bot logic only. Put stopLossPct/takeProfitPct only in riskConfig, not in strategyParams.\n"
                 "Also do NOT set amountPerGrid, initialAmount(for martingale), or totalBudget(for DCA) - these will be auto-calculated from the user's capital.\n\n"
                 "Return ONLY a single JSON object with this structure:\n"
                 "{\n"
@@ -1677,13 +1678,30 @@ def ai_generate_strategy():
             valid_types = ('grid', 'martingale', 'trend', 'dca')
             if result.get('botType') not in valid_types:
                 result['botType'] = 'grid'
-            if result.get('botType') == 'dca':
-                params = result.get('strategyParams') if isinstance(result.get('strategyParams'), dict) else {}
+            params = result.get('strategyParams') if isinstance(result.get('strategyParams'), dict) else {}
+            risk_cfg = result.get('riskConfig') if isinstance(result.get('riskConfig'), dict) else {}
+            base_cfg = result.get('baseConfig') if isinstance(result.get('baseConfig'), dict) else {}
+
+            # These amounts are derived from user capital in the product UI; keep the AI
+            # recommendation focused on strategy logic to avoid duplicate/conflicting fields.
+            if 'initialCapital' in base_cfg:
+                base_cfg['initialCapital'] = 0
+            result['baseConfig'] = base_cfg
+
+            bot_type = result.get('botType')
+            if bot_type == 'grid':
+                params.pop('amountPerGrid', None)
+            elif bot_type == 'martingale':
+                params.pop('initialAmount', None)
+                params.pop('takeProfitPct', None)
+            elif bot_type == 'dca':
+                params.pop('totalBudget', None)
                 freq = str(params.get('frequency') or '').strip().lower()
                 allowed = {'every_bar', 'hourly', '4h', 'daily', 'weekly', 'biweekly', 'monthly'}
                 if freq and freq not in allowed:
                     params['frequency'] = 'daily'
-                    result['strategyParams'] = params
+            result['strategyParams'] = params
+            result['riskConfig'] = risk_cfg
             return jsonify({'code': '', 'params': None, 'bot_recommend': result, 'msg': 'success'})
 
         if intent == 'adjust_params':
