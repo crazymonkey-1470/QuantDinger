@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from app.data_sources.factory import DataSourceFactory
-from app.data_sources.moex import INTERVAL_MAP, MOEXDataSource
+from app.data_sources.moex import DEFAULT_BOARD, INTERVAL_MAP, MOEXDataSource
 
 
 def _candle_payload(rows):
@@ -37,6 +37,18 @@ def test_normalize_symbol_strips_suffixes():
     assert MOEXDataSource._normalize_symbol("gazp.MOEX") == "GAZP"
     assert MOEXDataSource._normalize_symbol("LKOH:MOEX") == "LKOH"
     assert MOEXDataSource._normalize_symbol(" SBER ") == "SBER"
+
+
+def test_normalize_symbol_rejects_path_injection():
+    assert MOEXDataSource._normalize_symbol("../etc") == ""
+    assert MOEXDataSource._normalize_symbol("SBER/GMKN") == ""
+    assert MOEXDataSource._normalize_symbol("SB%ER") == ""
+    assert MOEXDataSource._normalize_symbol("a" * 40) == ""
+
+
+def test_invalid_board_falls_back_to_default():
+    src = MOEXDataSource(board="bad!!!")
+    assert src.board == DEFAULT_BOARD
 
 
 def test_interval_map_covers_all_quantdinger_timeframes():

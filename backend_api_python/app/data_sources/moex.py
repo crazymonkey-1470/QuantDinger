@@ -15,6 +15,7 @@ QuantDinger timeframes are mapped to the closest ISS interval.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -49,6 +50,9 @@ DEFAULT_ENGINE = "stock"
 DEFAULT_MARKET = "shares"
 HTTP_TIMEOUT = 15
 
+# TQBR-style tickers: Latin letters + digits only, after suffix stripping (path injection guard).
+_MOEX_TICKER_RE = re.compile(r"^[A-Z0-9]{1,32}$")
+
 
 class MOEXDataSource(BaseDataSource):
     """Moscow Exchange (MOEX) equities — analysis & backtest only."""
@@ -56,7 +60,10 @@ class MOEXDataSource(BaseDataSource):
     name = "MOEX/iss"
 
     def __init__(self, board: str = DEFAULT_BOARD):
-        self.board = board
+        b = str(board or DEFAULT_BOARD).strip().upper()
+        if not re.match(r"^[A-Z0-9]{1,16}$", b):
+            b = DEFAULT_BOARD
+        self.board = b
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": "QuantDinger/MOEX-DataSource"})
 
@@ -71,6 +78,8 @@ class MOEXDataSource(BaseDataSource):
             if s.endswith(suffix):
                 s = s[: -len(suffix)]
                 break
+        if not _MOEX_TICKER_RE.match(s):
+            return ""
         return s
 
     def _candle_url(self, symbol: str) -> str:
