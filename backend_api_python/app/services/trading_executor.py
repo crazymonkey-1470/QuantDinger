@@ -555,8 +555,12 @@ class TradingExecutor:
         ctx = StrategyScriptContext(df_exec, float(initial_capital or 0))
         raw = (trading_config or {}).get('script_runtime_state') or {}
         params = raw.get('params') if isinstance(raw, dict) else {}
-        if isinstance(params, dict):
-            ctx._params = dict(params)
+        persisted = dict(params) if isinstance(params, dict) else {}
+        bp = (trading_config or {}).get('bot_params')
+        bot_params = dict(bp) if isinstance(bp, dict) else {}
+        # 交易机器人参数在 trading_config.bot_params；持久化 state 里只有 layer 等运行时字段。
+        # 若只恢复 persisted，on_init 里 ctx.param('takeProfitPct', 0) 会把止盈写成 0，导致永不止盈。
+        ctx._params = {**persisted, **bot_params}
         last_ts = None
         ts_s = raw.get('last_closed_bar_ts') if isinstance(raw, dict) else None
         if ts_s:
@@ -1954,7 +1958,8 @@ class TradingExecutor:
         For non-bot strategies: enabled by default (historical behavior).
         For bot strategies: enabled only when the corresponding pct value > 0,
         since the user explicitly configured it in the risk form.
-        Martingale TP is handled in-script (take_profit_pct should be 0).
+        Bot TP/SL from bot_params is applied by the script after ctx._params merge;
+        top-level take_profit_pct/stop_loss_pct still enable server-side exits (margin-PnL semantics).
         """
         tc = trading_config if isinstance(trading_config, dict) else {}
         bot_type = str(tc.get('bot_type') or '').strip().lower()
