@@ -155,12 +155,12 @@ QuantDinger gives you something most trading tools do not:
 <table align="center" width="100%">
   <tr>
     <td colspan="2" align="center">
-      <a href="https://www.youtube.com/watch?v=tNAZ9uMiUUw">
+      <a href="https://www.youtube.com/watch?v=wHIvvv6fmHA">
         <img src="docs/screenshots/video_demo.png" alt="Video Demo" width="80%" style="border-radius: 12px;">
       </a>
       <br/>
       <sub>
-        <a href="https://www.youtube.com/watch?v=tNAZ9uMiUUw">
+        <a href="https://www.youtube.com/watch?v=wHIvvv6fmHA">
           <strong>▶ Watch Product Demo on YouTube</strong>
         </a>
       </sub>

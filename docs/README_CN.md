@@ -155,12 +155,12 @@ QuantDinger 真正想提供的，不只是一个“量化工具”，而是：
 <table align="center" width="100%">
   <tr>
     <td colspan="2" align="center">
-      <a href="https://www.youtube.com/watch?v=tNAZ9uMiUUw">
+      <a href="https://www.youtube.com/watch?v=wHIvvv6fmHA">
         <img src="screenshots/video_demo.png" alt="产品演示视频" width="80%" style="border-radius: 12px;">
       </a>
       <br/>
       <sub>
-        <a href="https://www.youtube.com/watch?v=tNAZ9uMiUUw">
+        <a href="https://www.youtube.com/watch?v=wHIvvv6fmHA">
           <strong>▶ 观看产品演示视频</strong>
         </a>
       </sub>
