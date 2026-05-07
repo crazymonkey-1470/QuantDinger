@@ -10,16 +10,19 @@ FROM ${RUNTIME_IMAGE}
 
 RUN apk add --no-cache curl
 
-# nginx:alpine auto-runs envsubst on /etc/nginx/templates/*.template at start.
-# Pin the filter so only ${BACKEND_URL} and ${PORT} are substituted — without it,
-# nginx's own $-variables ($host, $remote_addr, ...) would also get clobbered.
-ENV NGINX_ENVSUBST_FILTER="^(BACKEND_URL|PORT)$" \
-    BACKEND_URL=http://backend:5000 \
+# Defaults; overridden at runtime by docker-compose / Railway env vars.
+# entrypoint.sh prepends https:// if BACKEND_URL is given as a bare host.
+ENV BACKEND_URL=http://backend:5000 \
     PORT=80
 
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+# Template lives outside /etc/nginx/templates/ so the image's built-in
+# 20-envsubst-on-templates.sh leaves it alone — entrypoint.sh renders it.
+COPY nginx.conf.template /templates/default.conf.template
 COPY dist/ /usr/share/nginx/html/
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
