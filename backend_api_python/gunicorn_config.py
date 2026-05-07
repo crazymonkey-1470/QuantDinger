@@ -9,7 +9,7 @@ coordinate, so duplicate work is minimal.
 """
 import os
 
-bind = f"{os.getenv('PYTHON_API_HOST', '0.0.0.0')}:{os.getenv('PYTHON_API_PORT', '5000')}"
+bind = f"{os.getenv('PYTHON_API_HOST', '0.0.0.0')}:{os.getenv('PORT') or os.getenv('PYTHON_API_PORT', '5000')}"
 
 # Default: 1 worker + 4 threads — same concurrency model as Flask dev server
 # but with better stability and connection handling.
