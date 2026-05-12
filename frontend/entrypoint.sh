@@ -8,6 +8,12 @@
 # regex-based and has tripped us up.
 set -eu
 
+# Strip surrounding whitespace and angle brackets — common when the value
+# is pasted from markdown auto-links or plain-text emails (RFC 3986 §3.2.2).
+if [ -n "${BACKEND_URL:-}" ]; then
+    BACKEND_URL=$(printf '%s' "$BACKEND_URL" | sed 's/^[[:space:]<]*//; s/[[:space:]>]*$//')
+fi
+
 # Normalize BACKEND_URL: if user gave a bare host (e.g. Railway public domain
 # without scheme), default it to https://. Public Railway domains are HTTPS.
 if [ -n "${BACKEND_URL:-}" ]; then
