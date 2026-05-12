@@ -15,16 +15,19 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def generate_token(user_id: int, username: str, role: str = 'user', token_version: int = 1) -> str:
+def generate_token(user_id: int, username: str, role: str = 'user', token_version: int | None = 1) -> str:
     """
     Generate JWT token with user information.
-    
+
     Args:
         user_id: User ID
         username: Username
         role: User role (admin/manager/user/viewer)
-        token_version: Token version for single-client enforcement
-    
+        token_version: Token version for single-client enforcement. Pass None
+            to omit from the JWT (used for legacy-auth sessions where there is
+            no qd_users row to track a version against — verify_token will then
+            skip the DB version check).
+
     Returns:
         JWT token string
     """
@@ -35,8 +38,9 @@ def generate_token(user_id: int, username: str, role: str = 'user', token_versio
             'sub': username,
             'user_id': user_id,
             'role': role,
-            'token_version': token_version,  # 用于单一客户端登录控制
         }
+        if token_version is not None:
+            payload['token_version'] = token_version  # 用于单一客户端登录控制
         return jwt.encode(
             payload,
             Config.SECRET_KEY,
@@ -227,6 +231,12 @@ def authenticate_legacy(username: str, password: str) -> dict:
     """
     Legacy single-user authentication (for backward compatibility).
     Uses ADMIN_USER and ADMIN_PASSWORD from environment.
+
+    NB: this path bypasses the qd_users table entirely, so the returned dict is
+    flagged with ``_legacy=True``. The login route uses that flag to skip the
+    DB-backed token_version dance — otherwise the JWT would carry a version
+    that no row in qd_users can corroborate, and every subsequent request
+    would 401 with "Token invalid or expired".
     """
     if username == Config.ADMIN_USER and password == Config.ADMIN_PASSWORD:
         return {
@@ -234,5 +244,6 @@ def authenticate_legacy(username: str, password: str) -> dict:
             'username': username,
             'role': 'admin',
             'nickname': 'Admin',
+            '_legacy': True,
         }
     return None

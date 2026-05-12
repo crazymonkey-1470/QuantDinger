@@ -225,13 +225,19 @@ def login():
             return jsonify({'code': 0, 'msg': 'Account is pending activation', 'data': None}), 403
         
         # Step 4: Increment token_version (invalidates old sessions for single-client login)
+        # Legacy-auth users have no qd_users row, so there is nothing to
+        # increment or to verify against later — omit the version entirely so
+        # verify_token skips the DB check for these sessions.
         user_id = user.get('id') or user.get('user_id', 1)
-        try:
-            from app.services.user_service import get_user_service
-            new_token_version = get_user_service().increment_token_version(user_id)
-        except Exception as e:
-            logger.warning(f"Failed to increment token_version: {e}")
-            new_token_version = 1
+        if user.get('_legacy'):
+            new_token_version = None
+        else:
+            try:
+                from app.services.user_service import get_user_service
+                new_token_version = get_user_service().increment_token_version(user_id)
+            except Exception as e:
+                logger.warning(f"Failed to increment token_version: {e}")
+                new_token_version = 1
         
         # Step 5: Generate token with new token_version
         token = generate_token(
